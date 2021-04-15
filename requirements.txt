@@ -1,0 +1,11 @@
+numpy
+scikit-image
+scipy
+opencv-python
+torch
+torchvision
+seaborn
+matplotlib
+tqdm
+h5py
+setuptools
