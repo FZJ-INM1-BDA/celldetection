@@ -198,7 +198,7 @@ def labels2distances(labels, distance_type=cv2.DIST_L2, overlap_zero=True):
 
 
 class CPNTargetGenerator:
-    def __init__(self, samples, order, random_sampling=True, remove_partials=True, min_fg_dist=.75, max_bg_dist=.5):
+    def __init__(self, samples, order, random_sampling=True, remove_partials=False, min_fg_dist=.75, max_bg_dist=.5):
         self.samples = samples
         self.order = order
         self.random_sampling = random_sampling
