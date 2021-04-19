@@ -1,4 +1,5 @@
 import numpy as np
+from skimage import morphology
 
 
 def remove_partials_(label_stack, border=1, constant=-1):
@@ -71,3 +72,27 @@ def filter_instances_(labels, partials=True, partials_border=1, min_area=4, max_
 
     if continuous:
         fill_label_gaps_(labels)
+
+
+def relabel_(label_stack, axis=2):
+    """Relabel.
+
+    Inplace relabeling of a label stack.
+    After applying this op the labels in label_stack are continuous, starting at 1.
+    Negative labels remain untouched.
+
+    Notes:
+        - Uses label function from sklearn.morphology
+
+    Args:
+        label_stack: Array[height, width, channels].
+        axis: Channel axis.
+    """
+    assert label_stack.ndim == 3
+    cur_max = 0
+    for channel in range(label_stack.shape[axis]):
+        stack_ = label_stack[(slice(None),) * axis + (channel,)]
+        stack_ = morphology.label(stack_)
+        for u in set(np.unique(stack_)) - {0}:
+            cur_max += 1
+            label_stack[stack_ == u, channel] = cur_max
