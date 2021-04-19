@@ -56,8 +56,9 @@ def fourier2contour(fourier, locations, samples=64, sampling=None, cache: Dict[s
 
     order = fourier.shape[-2]
     d = fourier.device
+    sampling_ = sampling
     if sampling is None:
-        sampling = torch.linspace(0, 1.0, samples, device=d)
+        sampling = sampling_ = torch.linspace(0, 1.0, samples, device=d)
     samples = sampling.shape[-1]
     sampling = sampling[..., None, :]
 
@@ -84,7 +85,7 @@ def fourier2contour(fourier, locations, samples=64, sampling=None, cache: Dict[s
 
     con += (fourier[..., None, (1, 3)] * c_sin[(...,) + (None,) * 1]).sum(-3)
     con += (fourier[..., None, (0, 2)] * c_cos[(...,) + (None,) * 1]).sum(-3)
-    return con
+    return con, sampling_
 
 
 def get_scale(actual_size, original_size, flip=True, dtype=torch.float):
@@ -184,3 +185,23 @@ def order_weighting(order, max_w=5, min_w=1, spread=None) -> torch.Tensor:
         spread = order - 1
     y = min_w + (max_w - min_w) * (1 - (x / spread).clamp(0., 1.)) ** 2
     return y[:, None]  # broadcastable to (n, order, 4)
+
+
+def refinement_bucket_weight(index, base_index):
+    dist = torch.abs(index + 0.5 - base_index)
+    sel = dist > 1
+    dist = 1. - dist
+    dist[sel] = 0
+    dist.detach_()
+    return dist
+
+
+def resolve_refinement_buckets(samplings, num_buckets):
+    base_index = samplings * num_buckets
+    base_index_int = base_index.long()
+    a, b, c = base_index_int - 1, base_index_int, base_index_int + 1
+    return (
+        (a % num_buckets, refinement_bucket_weight(a, base_index)),
+        (b % num_buckets, refinement_bucket_weight(b, base_index)),
+        (c % num_buckets, refinement_bucket_weight(c, base_index))
+    )

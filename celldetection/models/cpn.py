@@ -8,7 +8,7 @@ from typing import List, Union, Dict, Tuple
 from ..util.util import add_to_loss_dict, reduce_loss_dict, fetch_model
 from ..ops.commons import downsample_labels
 from ..ops.cpn import rel_location2abs_location, fourier2contour, scale_contours, scale_fourier, batched_box_nms, \
-    order_weighting
+    order_weighting, resolve_refinement_buckets
 
 
 class ReadOut(nn.Module):
@@ -63,7 +63,8 @@ class CPNCore(nn.Module):
             contour_head_stride=1,
             refinement_head_channels=None,
             refinement_head_stride=1,
-            refinement_interpolation='bilinear'
+            refinement_interpolation='bilinear',
+            refinement_buckets=1,
     ):
         super().__init__()
         self.order = order
@@ -71,6 +72,8 @@ class CPNCore(nn.Module):
         self.refinement_features = refinement_features
         self.contour_features = contour_features
         self.refinement_interpolation = refinement_interpolation
+        assert refinement_buckets >= 1
+        self.refinement_buckets = refinement_buckets
         if isinstance(backbone_channels, int):
             contour_head_input_channels = refinement_head_input_channels = backbone_channels
         elif isinstance(backbone_channels, (tuple, list)):
@@ -105,7 +108,7 @@ class CPNCore(nn.Module):
         )
         if refinement:
             self.refinement_head = ReadOut(
-                refinement_head_input_channels, 2,
+                refinement_head_input_channels, 2 * refinement_buckets,
                 kernel_size=7,
                 padding=3,
                 final_activation='tanh',
@@ -152,6 +155,7 @@ class CPN(nn.Module):
             refinement: bool = True,
             refinement_iterations: int = 4,
             refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
             contour_features='1',
             refinement_features='0',
 
@@ -215,7 +219,8 @@ class CPN(nn.Module):
             contour_head_stride=contour_head_stride,
             refinement_head_channels=refinement_head_channels,
             refinement_head_stride=refinement_head_stride,
-            refinement_interpolation=refinement_interpolation
+            refinement_interpolation=refinement_interpolation,
+            refinement_buckets=refinement_buckets
         )
 
         self.order_weights = 1.
@@ -401,9 +406,9 @@ class CPN(nn.Module):
             sampling = sampling[b]
 
         # Convert to pixel space
-        selected_contour_proposals = fourier2contour(selected_fourier, selected_locations,
-                                                     samples=self.samples, sampling=sampling,
-                                                     cache=self._fourier2contour_cache)
+        selected_contour_proposals, sampling = fourier2contour(selected_fourier, selected_locations,
+                                                               samples=self.samples, sampling=sampling,
+                                                               cache=self._fourier2contour_cache)
 
         # Rescale in case of multi-scale
         selected_contour_proposals = scale_contours(actual_size=actual_size, original_size=original_size,
@@ -422,7 +427,19 @@ class CPN(nn.Module):
                 det_indices[..., 0].clamp_(0, original_size[1] - 1)
                 det_indices[..., 1].clamp_(0, original_size[0] - 1)
                 indices = det_indices.detach().long()  # Tensor[-1, samples, 2]
-                responses = refinement[b[:, None], :, indices[:, :, 1], indices[:, :, 0]]  # Tensor[-1, samples, 2]
+                if self.core.refinement_buckets == 1:
+                    responses = refinement[b[:, None], :, indices[:, :, 1], indices[:, :, 0]]  # Tensor[-1, samples, 2]
+                else:
+                    buckets = resolve_refinement_buckets(sampling, self.core.refinement_buckets)
+                    responses = None
+                    for bucket_indices, bucket_weights in buckets:
+                        bckt_idx = torch.stack((bucket_indices * 2, bucket_indices * 2 + 1), -1)
+                        cur_ref = refinement[b[:, None, None], bckt_idx, indices[:, :, 1, None], indices[:, :, 0, None]]
+                        cur_ref = cur_ref * bucket_weights[..., None]
+                        if responses is None:
+                            responses = cur_ref
+                        else:
+                            responses = responses + cur_ref
                 det_indices = det_indices + responses
             selected_contours = det_indices
         else:
@@ -477,7 +494,8 @@ class CPN(nn.Module):
 
         if not self.training and nms:
             nms_r = batched_box_nms(
-                final_boxes, final_scores, final_contours, final_locations, final_fourier, final_contour_proposals, final_classes,
+                final_boxes, final_scores, final_contours, final_locations, final_fourier, final_contour_proposals,
+                final_classes,
                 iou_threshold=self.nms_thresh
             )
             final_boxes, final_scores, final_contours, final_locations, final_fourier, final_contour_proposals, final_classes = nms_r
