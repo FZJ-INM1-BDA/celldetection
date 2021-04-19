@@ -28,6 +28,6 @@ def downsample_labels(inputs, size: List[int]):
     th, tw = size
     k = h // th, w // tw
     r = F.max_pool2d(inputs, k, k)
-    if r.shape[-2:] == (sizeh, sizew):
+    if r.shape[-2:] != (sizeh, sizew):
         r = F.interpolate(r, size, mode='nearest')
     return r
