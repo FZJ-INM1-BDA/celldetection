@@ -4,3 +4,4 @@ from .resnet import get_resnet, ResNet50, ResNet34, ResNet18, ResNet152, ResNet1
     ResNeXt152_32x8d, ResNeXt101_32x8d, ResNeXt50_32x4d
 from .cpn import CPN
 from .fpn import FPN
+from .inference import Inference
