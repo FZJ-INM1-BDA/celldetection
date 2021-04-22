@@ -2,9 +2,11 @@ import numpy as np
 import inspect
 import torch
 import torch.nn as nn
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Any, Dict as TDict
 from torch import Tensor
 from torchvision.models.utils import load_state_dict_from_url
+import hashlib
+import json
 
 
 class Dict(dict):
@@ -112,3 +114,19 @@ def random_code_name(chars=4):
     a, b, s = [i for i in 'aeiou'], [i for i in 'tskyrhzjgqmxlvnfcpwbd'], ''
     return ''.join([np.random.choice(b if j % 2 == 0 else a) for j in range(chars)])
 
+
+def dict_hash(dictionary: TDict[str, Any]) -> str:
+    """MD5 hash of a dictionary.
+
+    References:
+        https://www.doc.ic.ac.uk/~nuric/coding/how-to-hash-a-dictionary-in-python.html
+
+    Args:
+        dictionary:
+
+    Returns:
+
+    """
+    dhash = hashlib.md5()
+    dhash.update(json.dumps(dictionary, sort_keys=True).encode())
+    return dhash.hexdigest()
