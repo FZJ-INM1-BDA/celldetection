@@ -106,8 +106,8 @@ def asnumpy(v):
         raise ValueError(f'Type not supported: {type(v)}')
 
 
-def fetch_model(name):
-    return load_state_dict_from_url(f'https://celldetection.org/torch/models/{name}.pt')
+def fetch_model(name, *args, **kwargs):
+    return load_state_dict_from_url(f'https://celldetection.org/torch/models/{name}.pt', *args, **kwargs)
 
 
 def random_code_name(chars=4):
@@ -130,3 +130,19 @@ def dict_hash(dictionary: TDict[str, Any]) -> str:
     dhash = hashlib.md5()
     dhash.update(json.dumps(dictionary, sort_keys=True).encode())
     return dhash.hexdigest()
+
+
+def fetch_image(url, numpy=True):
+    """Fetch image from URL.
+
+    Args:
+        url: URL
+        numpy: Whether to convert PIL Image to numpy array.
+
+    Returns:
+        PIL Image or numpy array.
+    """
+    import requests
+    from PIL import Image
+    img = Image.open(requests.get(url, stream=True).raw)
+    return np.asarray(img) if numpy else img
