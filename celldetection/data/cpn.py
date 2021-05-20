@@ -149,6 +149,58 @@ def contours2fourier(contours: dict, order=5, dtype=np.float32):
     return fouriers, locations
 
 
+def render_contour(contour, val=1, dtype='int32'):
+    xmin, ymin = np.floor(np.min(contour, axis=0)).astype('int')
+    xmax, ymax = np.ceil(np.max(contour, axis=0)).astype('int')
+    a = np.zeros((ymax - ymin + 1, xmax - xmin + 1), dtype=dtype)
+    a = cv2.drawContours(a, [np.array(contour, dtype=np.int32).reshape((-1, 1, 2))], 0, val, -1,
+                         offset=(-xmin, -ymin))
+    return a, (xmin, xmax), (ymin, ymax)
+
+
+def clip_contour_(contour, size):
+    np.clip(contour[..., 0], 0, size[1], out=contour[..., 0])
+    np.clip(contour[..., 1], 0, size[0], out=contour[..., 1])
+
+
+def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, gap=3, dtype='int32'):
+    """Contours to labels.
+
+    Converts contours to label image.
+
+    Notes:
+        ~137 ms for contours.shape=(1284, 128, 2), size=(1000, 1000).
+
+    Args:
+        contours: Contours. Array[num_contours, num_points, 2] or List[Array[num_points, 2]].
+        size: Label image size. (height, width).
+        rounded: Whether to round contour coordinates.
+        clip: Whether to clip contour coordinates to given `size`.
+        initial_depth: Initial number of channels. More channels are used if necessary.
+        gap: Gap between instances.
+        dtype: Data type of label image.
+
+    Returns:
+        Array[height, width, channels]. Channels are used to model overlap.
+    """
+    labels = np.zeros(tuple(size) + (initial_depth,), dtype=dtype)
+    lbl = 1
+    for contour in contours:
+        if rounded:
+            contour = np.round(contour)
+        if clip:
+            clip_contour_(contour, size)
+        a, (xmin, xmax), (ymin, ymax) = render_contour(contour, val=lbl, dtype=dtype)
+        lbl += 1
+        s = (labels[np.maximum(0, ymin - gap): gap + ymin + a.shape[0],
+             np.maximum(0, xmin - gap): gap + xmin + a.shape[1]] > 0).sum((0, 1))
+        i = next(i for i in range(labels.shape[2] + 1) if ~ (i < labels.shape[2] and np.any(s[i])))
+        if i >= labels.shape[2]:
+            labels = np.concatenate((labels, np.zeros(size, dtype=dtype)[..., None]), axis=-1)
+        labels[ymin:ymin + a.shape[0], xmin:xmin + a.shape[1], i] += a
+    return labels
+
+
 def mask_labels_by_distance_(labels, distances, max_bg_dist, min_fg_dist):
     # Set instance labels to 0 if their distance is <= max_bg_dist
     labels[np.logical_and(np.any(labels > 0, 2), distances <= max_bg_dist)] = 0
