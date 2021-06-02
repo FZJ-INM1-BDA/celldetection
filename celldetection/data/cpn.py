@@ -189,7 +189,7 @@ def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, ga
         if rounded:
             contour = np.round(contour)
         if clip:
-            clip_contour_(contour, size)
+            clip_contour_(contour, np.array(size) - 1)
         a, (xmin, xmax), (ymin, ymax) = render_contour(contour, val=lbl, dtype=dtype)
         lbl += 1
         s = (labels[np.maximum(0, ymin - gap): gap + ymin + a.shape[0],
