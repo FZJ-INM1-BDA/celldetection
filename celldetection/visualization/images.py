@@ -44,7 +44,8 @@ def plot_mask(mask, alpha=1):
 
 
 def show_detection(image=None, contours=None, coordinates=None, boxes=None, scores=None, masks=None,
-                   figsize=None, label_stack=None, class_name='score', contour_line_width=2, fill=.2, cmap=...):
+                   figsize=None, label_stack=None, class_name='score', contour_line_width=2, contour_linestyle='--',
+                   fill=.2, cmap=...):
     if figsize is not None:
         plt.figure(None, figsize)
     plt.grid(0)
@@ -62,7 +63,7 @@ def show_detection(image=None, contours=None, coordinates=None, boxes=None, scor
                 f, = plt.fill(c_[:, 0], c_[:, 1], alpha=fill)
                 kw['color'] = f.get_facecolor()[:3]
             c_ = np.concatenate((c_, c_[:1]), 0)  # close contour
-            plt.plot(c_[:, 0], c_[:, 1], '--', linewidth=contour_line_width, **kw)
+            plt.plot(c_[:, 0], c_[:, 1], linestyle=contour_linestyle, linewidth=contour_line_width, **kw)
             if scores is not None and boxes is None:
                 c_min = np.argmin(c_[:, 1])
                 if isinstance(class_name, str):
