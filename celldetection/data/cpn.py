@@ -99,6 +99,38 @@ def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
     return contours
 
 
+def masks2labels(masks, connectivity=8, label_axis=2, count=False, reduce=np.max, keepdims=True, **kwargs):
+    """Masks to labels.
+
+    Notes:
+        ~ 11.7 ms for Array[25, 256, 256]. For same array skimage.measure.label takes ~ 17.9 ms.
+
+    Args:
+        masks: List[Array[height, width]] or Array[num_masks, height, width]
+        connectivity: 8 or 4 for 8-way or 4-way connectivity respectively
+        label_axis: Axis used for stacking label maps. One per mask.
+        count: Whether to count and return the number of components.
+        reduce: Callable used to reduce `label_axis`. If set to None, `label_axis` will not be reduced.
+            Can be used if instances do not overlap.
+        **kwargs: Kwargs for cv2.connectedComponents.
+
+    Returns:
+        labels or (labels, count)
+    """
+    labels = []
+    cnt = 0
+    for m in masks:
+        a, b = cv2.connectedComponents(m, connectivity=connectivity, **kwargs)
+        if cnt > 0:
+            b[b > 0] += cnt
+        cnt += a - (1 if (a > 1 and 0 in b) else 0)
+        labels.append(b)
+    labels = np.stack(labels, label_axis)
+    if reduce is not None:
+        labels = reduce(labels, axis=label_axis, keepdims=keepdims)
+    return (labels, cnt) if count else labels
+
+
 def fourier2contour(fourier, locations, samples=64, sampling=None):
     """
 
