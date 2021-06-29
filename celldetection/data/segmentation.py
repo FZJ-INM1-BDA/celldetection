@@ -96,3 +96,20 @@ def relabel_(label_stack, axis=2):
         for u in set(np.unique(stack_)) - {0}:
             cur_max += 1
             label_stack[stack_ == u, channel] = cur_max
+
+
+def unary_masks2labels(unary_masks, transpose=True):
+    """Unary masks to labels.
+
+    Args:
+        unary_masks: List[Array[height, width]] or Array[num_objects, height, width]
+            List of masks. Each mask is assumed to contain exactly one object.
+        transpose: If True label images are in channels last format, otherwise channels first.
+
+    Returns:
+        Label image. Array[height, width, num_objects] if `transpose` else Array[num_objects, height, width].
+    """
+    lbl = (unary_masks > 0) * np.arange(1, len(unary_masks) + 1)[:, None, None]
+    if transpose:
+        lbl = lbl.transpose((1, 2, 0))
+    return lbl

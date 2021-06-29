@@ -99,6 +99,12 @@ def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
     return contours
 
 
+def labels2contour_list(labels) -> list:
+    if labels.ndim == 2:
+        labels = labels[..., None]
+    return [np.squeeze(i, 1) for i in list(labels2contours(labels).values())]
+
+
 def masks2labels(masks, connectivity=8, label_axis=2, count=False, reduce=np.max, keepdims=True, **kwargs):
     """Masks to labels.
 
