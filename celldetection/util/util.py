@@ -146,3 +146,30 @@ def fetch_image(url, numpy=True):
     from PIL import Image
     img = Image.open(requests.get(url, stream=True).raw)
     return np.asarray(img) if numpy else img
+
+
+def random_seed(seed, backends=False, deterministic_torch=True):
+    """Set random seed.
+
+    References:
+        https://pytorch.org/docs/stable/notes/randomness.html
+
+    Args:
+        seed: Random seed.
+        backends: Whether to also adapt backends. If set True cuDNN's benchmark feature is disabled. This
+            causes cuDNN to deterministically select an algorithm, possibly at the cost of reduced performance.
+            Also the selected algorithm is set to run deterministically.
+        deterministic_torch: Whether to set PyTorch operations to behave deterministically.
+
+    """
+    from torch import manual_seed
+    from torch.backends import cudnn
+    import random
+    random.seed(seed)
+    manual_seed(seed)
+    np.random.seed(seed)
+    if backends:
+        cudnn.deterministic = True
+        cudnn.benchmark = False
+    if deterministic_torch and 'use_deterministic_algorithms' in dir(torch):
+        torch.use_deterministic_algorithms(True)
