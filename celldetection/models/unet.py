@@ -169,3 +169,73 @@ class UNet(BackboneAsUNet):
             out_channels=out_channels,
             block=block
         )
+
+
+class U22(UNet):
+    def __init__(self, in_channels, out_channels):
+        """ U-Net 22.
+
+        U-Net with 22 convolutions on 5 feature resolutions (1, 1/2, 1/4, 1/8, 1/16) and one final output layer.
+
+        References:
+            https://arxiv.org/abs/1505.04597
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels. If set to 0, the output layer is omitted.
+        """
+        super().__init__(UNetEncoder(in_channels=in_channels), out_channels=out_channels)
+
+
+class SlimU22(UNet):
+    def __init__(self, in_channels, out_channels):
+        """ Slim U-Net 22.
+
+        U-Net with 22 convolutions on 5 feature resolutions (1, 1/2, 1/4, 1/8, 1/16) and one final output layer.
+        Like U22, but number of feature channels reduce by half.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels. If set to 0, the output layer is omitted.
+        """
+        super().__init__(UNetEncoder(in_channels=in_channels, base_channels=32), out_channels=out_channels)
+
+
+class WideU22(UNet):
+    def __init__(self, in_channels, out_channels):
+        """ Slim U-Net 22.
+
+        U-Net with 22 convolutions on 5 feature resolutions (1, 1/2, 1/4, 1/8, 1/16) and one final output layer.
+        Like U22, but number of feature channels doubled.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels. If set to 0, the output layer is omitted.
+        """
+        super().__init__(UNetEncoder(in_channels=in_channels, base_channels=128), out_channels=out_channels)
+
+
+class U17(UNet):
+    def __init__(self, in_channels, out_channels):
+        """ U-Net 17.
+
+        U-Net with 17 convolutions on 4 feature resolutions (1, 1/2, 1/4, 1/8) and one final output layer.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels. If set to 0, the output layer is omitted.
+        """
+        super().__init__(UNetEncoder(in_channels=in_channels, depth=4), out_channels=out_channels)
+
+
+class U12(UNet):
+    def __init__(self, in_channels, out_channels):
+        """ U-Net 12.
+
+        U-Net with 17 convolutions on 3 feature resolutions (1, 1/2, 1/4) and one final output layer.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels. If set to 0, the output layer is omitted.
+        """
+        super().__init__(UNetEncoder(in_channels=in_channels, depth=3), out_channels=out_channels)

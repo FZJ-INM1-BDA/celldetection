@@ -9,6 +9,7 @@ from ..util.util import add_to_loss_dict, reduce_loss_dict, fetch_model
 from ..ops.commons import downsample_labels
 from ..ops.cpn import rel_location2abs_location, fourier2contour, scale_contours, scale_fourier, batched_box_nms, \
     order_weighting, resolve_refinement_buckets
+from .unet import U22, SlimU22, WideU22
 
 
 class ReadOut(nn.Module):
@@ -511,6 +512,165 @@ class CPN(nn.Module):
         })
 
         return outputs
+
+
+class CpnU22(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with U-Net 22 backbone.
+
+        A Contour Proposal Network that uses a U-Net with 22 convolutions as a backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=U22(in_channels, 0),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnSlimU22(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with Slim U-Net 22 backbone.
+
+        Slim U-Net has 22 convolutions with less feature channels than normal U22.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=SlimU22(in_channels, 0),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnWideU22(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with Wide U-Net 22 backbone.
+
+        Wide U-Net has 22 convolutions with more feature channels than normal U22.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=WideU22(in_channels, 0),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
 
 
 models_by_name = {
