@@ -65,6 +65,6 @@ If your data contains images and [label images](https://scikit-image.org/docs/de
 
 ## 🔗 Links
 - [Abstract (arXiv)](https://arxiv.org/abs/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
-- [PDF (arXiv)](https://arxiv.org/abs/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
+- [PDF (arXiv)](https://arxiv.org/pdf/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
 - [Bibtex (arXiv)](https://arxiv.org/bibtex/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
 - [PyPI](https://pypi.org/project/celldetection/ "CellDetection")
