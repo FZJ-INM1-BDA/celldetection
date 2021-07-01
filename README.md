@@ -18,6 +18,23 @@ If your data contains images and [label images](https://scikit-image.org/docs/de
 
 ## 🔬 Models
 `from celldetection import models`
+
+###### Contour Proposal Networks:
+- `models.CpnU22`
+- `models.CpnSlimU22`
+- `models.CpnWideU22`
+- `models.CPN`
+
+###### U-Nets:
+- `models.U22`
+- `models.SlimU22`
+- `models.WideU22`
+- `models.U17`
+- `models.U12`
+- `models.UNetEncoder`
+- `models.UNet`
+
+###### Residual Networks:
 - `models.ResNet18`
 - `models.ResNet34`
 - `models.ResNet50`
@@ -28,10 +45,9 @@ If your data contains images and [label images](https://scikit-image.org/docs/de
 - `models.ResNeXt152_32x8d`
 - `models.WideResNet50_2`
 - `models.WideResNet101_2`
-- `models.UNetEncoder`
-- `models.UNet`
+
+###### Feature Pyramid Networks:
 - `models.FPN`
-- `models.CPN`
 
 
 ## 📝 Citing
@@ -46,3 +62,9 @@ If your data contains images and [label images](https://scikit-image.org/docs/de
       primaryClass={cs.CV}
 }
 ```
+
+## 🔗 Links
+- [Abstract (arXiv)](https://arxiv.org/abs/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
+- [PDF (arXiv)](https://arxiv.org/abs/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
+- [Bibtex (arXiv)](https://arxiv.org/bibtex/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
+- [PyPI](https://pypi.org/project/celldetection/ "CellDetection")
