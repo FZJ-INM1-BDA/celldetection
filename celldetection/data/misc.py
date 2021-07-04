@@ -14,10 +14,9 @@ def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dim
         b = list(range(spatial_dims + has_batch, inputs.ndim))  # n channels
         c = list(range(has_batch, spatial_dims + has_batch))  # spatial dims
     else:
+        # e.g. (0, 2, 3, 1)
         b = list(range(inputs.ndim - spatial_dims, inputs.ndim))  # spatial dims
         c = list(range(has_batch, inputs.ndim - spatial_dims - (1 - has_batch)))  # n channels
-        # e.g. (0, 2, 3, 1)
-    print(a, b, c)
     return np.transpose(inputs, a + b + c)
 
 
