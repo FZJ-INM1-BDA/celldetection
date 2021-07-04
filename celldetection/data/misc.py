@@ -4,18 +4,74 @@ from collections import OrderedDict
 from skimage import img_as_ubyte
 
 
-def transpose_spatial(inputs, spatial_dims=2, has_batch=False):
+def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dims=2, has_batch=False):
     if spatial_dims == 0:
         return inputs
-    return np.transpose(inputs, ([0] * has_batch) + list(range(spatial_dims + has_batch, inputs.ndim)) + list(
-        range(has_batch, spatial_dims + has_batch)))
+    has_batch = bool(has_batch)
+    a = ([0] * has_batch)
+    if inputs_channels_last:
+        # e. g. (0, 3, 1, 2)
+        b = list(range(spatial_dims + has_batch, inputs.ndim))  # n channels
+        c = list(range(has_batch, spatial_dims + has_batch))  # spatial dims
+    else:
+        b = list(range(inputs.ndim - spatial_dims, inputs.ndim))  # spatial dims
+        c = list(range(has_batch, inputs.ndim - spatial_dims - (1 - has_batch)))  # n channels
+        # e.g. (0, 2, 3, 1)
+    print(a, b, c)
+    return np.transpose(inputs, a + b + c)
 
 
-def to_tensor(inputs, spatial_dims=2, has_batch=False):
-    return torch.as_tensor(transpose_spatial(inputs, spatial_dims=spatial_dims, has_batch=has_batch))
+def channels_last2channels_first(inputs: np.ndarray, spatial_dims=2, has_batch=False) -> np.ndarray:
+    """Channels last to channels first.
+
+    Args:
+        inputs: Input array.
+        spatial_dims: Number of spatial dimensions.
+        has_batch: Whether inputs has a batch dimension.
+
+    Returns:
+        Transposed array.
+    """
+    return transpose_spatial(inputs, inputs_channels_last=True, spatial_dims=spatial_dims, has_batch=has_batch)
 
 
-def universal_dict_collate_fn(batch):
+def channels_first2channels_last(inputs: np.ndarray, spatial_dims=2, has_batch=False) -> np.ndarray:
+    """Channels first to channels last.
+
+    Args:
+        inputs: Input array.
+        spatial_dims: Number of spatial dimensions.
+        has_batch: Whether inputs has a batch dimension.
+
+    Returns:
+        Transposed array.
+    """
+    return transpose_spatial(inputs, inputs_channels_last=False, spatial_dims=spatial_dims, has_batch=has_batch)
+
+
+def to_tensor(inputs: np.ndarray, spatial_dims=2, transpose=False, has_batch=False, dtype=None,
+              device=None) -> torch.Tensor:
+    """Array to Tensor.
+
+    Converts numpy array to Tensor and optionally transposes from channels last to channels first.
+
+    Args:
+        inputs: Input array.
+        transpose: Whether to transpose channels from channels last to channels first.
+        spatial_dims: Number of spatial dimensions.
+        has_batch: Whether inputs has a batch dimension.
+        dtype: Data type of output Tensor.
+        device: Device of output Tensor.
+
+    Returns:
+        Tensor.
+    """
+    return torch.as_tensor(
+        channels_last2channels_first(inputs, spatial_dims=bool(transpose) * spatial_dims, has_batch=has_batch),
+        device=device, dtype=dtype)
+
+
+def universal_dict_collate_fn(batch) -> OrderedDict:
     results = OrderedDict({})
     ref = batch[0]
     for k in ref.keys():
@@ -24,10 +80,10 @@ def universal_dict_collate_fn(batch):
             results[k] = np.stack(
                 [np.pad(b[k][0], ((0, max_dim - b[k][0].shape[0]),) + ((0, 0),) * (b[k][0].ndim - 1)) for b in batch],
                 axis=0)
-            results[k] = to_tensor(results[k], 0, True)
+            results[k] = to_tensor(results[k], transpose=False, spatial_dims=0, has_batch=True)
         else:
             results[k] = np.stack([b[k] for b in batch], axis=0)
-            results[k] = to_tensor(results[k], 2, True)
+            results[k] = to_tensor(results[k], transpose=True, spatial_dims=2, has_batch=True)
     return results
 
 
