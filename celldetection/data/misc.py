@@ -31,9 +31,10 @@ def universal_dict_collate_fn(batch):
     return results
 
 
-def normalize_percentile(image, percentile=99.9):
+def normalize_percentile(image, percentile=99.9, to_uint8=True):
     low, high = np.percentile(image, (100 - percentile, percentile))
-    return img_as_ubyte((np.clip(image, low, high) - low) / (high - low))
+    img = (np.clip(image, low, high) - low) / (high - low)
+    return img_as_ubyte(img) if to_uint8 else img
 
 
 def random_crop(*arrays, height, width=None):
