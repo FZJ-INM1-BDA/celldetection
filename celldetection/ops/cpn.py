@@ -33,8 +33,8 @@ def rel_location2abs_location(locations, cache: Dict[str, Tensor] = None, cache_
     return r
 
 
-def fourier2contour(fourier, locations, samples=64, sampling=None, cache: Dict[str, Tensor] = None,
-                    cache_size: int = 16):
+def fouriers2contours(fourier, locations, samples=64, sampling=None, cache: Dict[str, Tensor] = None,
+                      cache_size: int = 16):
     """
 
     Args:
@@ -52,7 +52,7 @@ def fourier2contour(fourier, locations, samples=64, sampling=None, cache: Dict[s
     if isinstance(fourier, (tuple, list)):
         if sampling is None:
             sampling = [sampling] * len(fourier)
-        return [fourier2contour(f, l, samples=samples, sampling=s) for f, l, s in zip(fourier, locations, sampling)]
+        return [fouriers2contours(f, l, samples=samples, sampling=s) for f, l, s in zip(fourier, locations, sampling)]
 
     order = fourier.shape[-2]
     d = fourier.device

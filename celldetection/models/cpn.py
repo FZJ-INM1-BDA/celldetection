@@ -7,7 +7,7 @@ from collections import OrderedDict
 from typing import List, Union, Dict, Tuple
 from ..util.util import add_to_loss_dict, reduce_loss_dict, fetch_model
 from ..ops.commons import downsample_labels
-from ..ops.cpn import rel_location2abs_location, fourier2contour, scale_contours, scale_fourier, batched_box_nms, \
+from ..ops.cpn import rel_location2abs_location, fouriers2contours, scale_contours, scale_fourier, batched_box_nms, \
     order_weighting, resolve_refinement_buckets
 from .unet import U22, SlimU22, WideU22
 
@@ -407,9 +407,9 @@ class CPN(nn.Module):
             sampling = sampling[b]
 
         # Convert to pixel space
-        selected_contour_proposals, sampling = fourier2contour(selected_fourier, selected_locations,
-                                                               samples=self.samples, sampling=sampling,
-                                                               cache=self._fourier2contour_cache)
+        selected_contour_proposals, sampling = fouriers2contours(selected_fourier, selected_locations,
+                                                                 samples=self.samples, sampling=sampling,
+                                                                 cache=self._fourier2contour_cache)
 
         # Rescale in case of multi-scale
         selected_contour_proposals = scale_contours(actual_size=actual_size, original_size=original_size,
