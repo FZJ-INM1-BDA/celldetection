@@ -23,6 +23,16 @@ If your data contains images and [label images](https://scikit-image.org/docs/de
 - `models.CpnU22`
 - `models.CpnSlimU22`
 - `models.CpnWideU22`
+- `models.CpnResNet18FPN`
+- `models.CpnResNet34FPN`
+- `models.CpnResNet50FPN`
+- `models.CpnResNet101FPN`
+- `models.CpnResNet152FPN`
+- `models.CpnResNeXt50FPN`
+- `models.CpnResNeXt101FPN`
+- `models.CpnResNeXt152FPN`
+- `models.CpnWideResNet50FPN`
+- `models.CpnWideResNet101FPN`
 - `models.CPN`
 
 ###### U-Nets:
@@ -47,6 +57,16 @@ If your data contains images and [label images](https://scikit-image.org/docs/de
 - `models.WideResNet101_2`
 
 ###### Feature Pyramid Networks:
+- `models.ResNet18FPN`
+- `models.ResNet34FPN`
+- `models.ResNet50FPN`
+- `models.ResNet101FPN`
+- `models.ResNet152FPN`
+- `models.ResNeXt50FPN`
+- `models.ResNeXt101FPN`
+- `models.ResNeXt152FPN`
+- `models.WideResNet50FPN`
+- `models.WideResNet101FPN`
 - `models.FPN`
 
 
