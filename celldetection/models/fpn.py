@@ -1,5 +1,7 @@
 import torch
 from torchvision.models.detection.backbone_utils import BackboneWithFPN
+from .resnet import ResNet18, ResNet34, ResNet50, ResNet101, ResNet152, ResNeXt50_32x4d, ResNeXt101_32x8d, \
+    ResNeXt152_32x8d, WideResNet50_2, WideResNet101_2
 
 
 class FPN(BackboneWithFPN):
@@ -35,3 +37,53 @@ class FPN(BackboneWithFPN):
             in_channels_list=list(backbone.out_channels),
             out_channels=channels
         )
+
+
+class ResNet18FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(ResNet18(in_channels=in_channels), channels=fpn_channels)
+
+
+class ResNet34FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(ResNet34(in_channels=in_channels), channels=fpn_channels)
+
+
+class ResNet50FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(ResNet50(in_channels=in_channels), channels=fpn_channels)
+
+
+class ResNet101FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(ResNet101(in_channels=in_channels), channels=fpn_channels)
+
+
+class ResNet152FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(ResNet152(in_channels=in_channels), channels=fpn_channels)
+
+
+class ResNeXt50FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(ResNeXt50_32x4d(in_channels=in_channels), channels=fpn_channels)
+
+
+class ResNeXt101FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(ResNeXt101_32x8d(in_channels=in_channels), channels=fpn_channels)
+
+
+class ResNeXt152FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(ResNeXt152_32x8d(in_channels=in_channels), channels=fpn_channels)
+
+
+class WideResNet50FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(WideResNet50_2(in_channels=in_channels), channels=fpn_channels)
+
+
+class WideResNet101FPN(FPN):
+    def __init__(self, in_channels, fpn_channels=256):
+        super().__init__(WideResNet101_2(in_channels=in_channels), channels=fpn_channels)

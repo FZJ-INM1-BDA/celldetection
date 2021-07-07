@@ -4,12 +4,14 @@ import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
 from collections import OrderedDict
-from typing import List, Union, Dict, Tuple
+from typing import Dict
 from ..util.util import add_to_loss_dict, reduce_loss_dict, fetch_model
 from ..ops.commons import downsample_labels
 from ..ops.cpn import rel_location2abs_location, fouriers2contours, scale_contours, scale_fourier, batched_box_nms, \
     order_weighting, resolve_refinement_buckets
 from .unet import U22, SlimU22, WideU22
+from .fpn import ResNet34FPN, ResNet18FPN, ResNet50FPN, ResNet101FPN, ResNet152FPN, ResNeXt50FPN, \
+    ResNeXt101FPN, ResNeXt152FPN, WideResNet50FPN, WideResNet101FPN
 
 
 class ReadOut(nn.Module):
@@ -660,6 +662,516 @@ class CpnWideU22(CPN):
         """
         super().__init__(
             backbone=WideU22(in_channels, 0),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnResNet18FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with ResNet 18 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=ResNet18FPN(in_channels),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnResNet34FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with ResNet 34 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=ResNet34FPN(in_channels),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnResNet50FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with ResNet 50 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=ResNet50FPN(in_channels),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnResNet101FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with ResNet 101 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=ResNet101FPN(in_channels),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnResNet152FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with Resnet 152 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=ResNet152FPN(in_channels),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnResNeXt50FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with ResNeXt 50 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=ResNeXt50FPN(in_channels),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnResNeXt101FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with ResNeXt 101 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=ResNeXt101FPN(in_channels),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnResNeXt152FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with ResNeXt 152 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=ResNeXt152FPN(in_channels),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnWideResNet50FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with Wide ResNet 50 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=WideResNet50FPN(in_channels),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+
+class CpnWideResNet101FPN(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            **kwargs
+    ):
+        """ Contour Proposal Network with Wide ResNet 101 FPN backbone.
+
+        Args:
+            in_channels: Number of input channels.
+            order: Contour order. The higher, the more complex contours can be proposed.
+                `order=1` restricts the CPN to propose ellipses, `order=3` allows for non-convex rough outlines,
+                `order=8` allows even finer detail.
+            nms_thresh: IOU threshold for non-maximum suppression (NMS). NMS considers all objects with
+                `iou > nms_thresh` to be identical.
+            score_thresh: Score threshold. For binary classification problems (object vs. background) an object must
+                have `score > score_thresh` to be proposed as a result.
+            samples: Number of samples. This sets the number of coordinates with which a contour is defined.
+                This setting can be changed on the fly, e.g. small for training and large for inference.
+                Small settings reduces computational costs, while larger settings capture more detail.
+            classes: Number of classes. Default: 2 (object vs. background).
+            refinement: Whether to use local refinement or not.
+            refinement_iterations: Number of refinement iterations.
+            refinement_margin: Maximum refinement margin (step size) per iteration.
+            refinement_buckets: Number of refinement buckets.
+            **kwargs: See docstring of CPN.
+        """
+        super().__init__(
+            backbone=WideResNet101FPN(in_channels),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
