@@ -33,6 +33,8 @@ If your data contains images and [label images](https://scikit-image.org/docs/de
 - `models.CpnResNeXt152FPN`
 - `models.CpnWideResNet50FPN`
 - `models.CpnWideResNet101FPN`
+- `models.CpnMobileNetV3SmallFPN`
+- `models.CpnMobileNetV3LargeFPN`
 - `models.CPN`
 
 ###### U-Nets:
@@ -43,6 +45,21 @@ If your data contains images and [label images](https://scikit-image.org/docs/de
 - `models.U12`
 - `models.UNetEncoder`
 - `models.UNet`
+
+###### Feature Pyramid Networks:
+- `models.ResNet18FPN`
+- `models.ResNet34FPN`
+- `models.ResNet50FPN`
+- `models.ResNet101FPN`
+- `models.ResNet152FPN`
+- `models.ResNeXt50FPN`
+- `models.ResNeXt101FPN`
+- `models.ResNeXt152FPN`
+- `models.WideResNet50FPN`
+- `models.WideResNet101FPN`
+- `models.MobileNetV3SmallFPN`
+- `models.MobileNetV3LargeFPN`
+- `models.FPN`
 
 ###### Residual Networks:
 - `models.ResNet18`
@@ -56,18 +73,10 @@ If your data contains images and [label images](https://scikit-image.org/docs/de
 - `models.WideResNet50_2`
 - `models.WideResNet101_2`
 
-###### Feature Pyramid Networks:
-- `models.ResNet18FPN`
-- `models.ResNet34FPN`
-- `models.ResNet50FPN`
-- `models.ResNet101FPN`
-- `models.ResNet152FPN`
-- `models.ResNeXt50FPN`
-- `models.ResNeXt101FPN`
-- `models.ResNeXt152FPN`
-- `models.WideResNet50FPN`
-- `models.WideResNet101FPN`
-- `models.FPN`
+###### Mobile Networks:
+- `models.MobileNetV3Small`
+- `models.MobileNetV3Large`
+
 
 
 ## 📝 Citing

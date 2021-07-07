@@ -2,6 +2,7 @@ import torch
 from torchvision.models.detection.backbone_utils import BackboneWithFPN
 from .resnet import ResNet18, ResNet34, ResNet50, ResNet101, ResNet152, ResNeXt50_32x4d, ResNeXt101_32x8d, \
     ResNeXt152_32x8d, WideResNet50_2, WideResNet101_2
+from .mobilenetv3 import MobileNetV3Large, MobileNetV3Small
 
 
 class FPN(BackboneWithFPN):
@@ -87,3 +88,51 @@ class WideResNet50FPN(FPN):
 class WideResNet101FPN(FPN):
     def __init__(self, in_channels, fpn_channels=256):
         super().__init__(WideResNet101_2(in_channels=in_channels), channels=fpn_channels)
+
+
+class MobileNetV3SmallFPN(FPN):
+    """Feature Pyramid Network with MobileNetV3Small.
+
+    Examples:
+        ```
+        >>> import torch
+        >>> from celldetection import models
+        >>> model = models.MobileNetV3SmallFPN(in_channels=3)
+        >>> out: dict = model(torch.rand(1, 3, 256, 256))
+        >>> for k, v in out.items():
+        ...     print(k, v.shape)
+        0 torch.Size([1, 256, 128, 128])
+        1 torch.Size([1, 256, 64, 64])
+        2 torch.Size([1, 256, 32, 32])
+        3 torch.Size([1, 256, 16, 16])
+        4 torch.Size([1, 256, 8, 8])
+        pool torch.Size([1, 256, 4, 4])
+        ```
+    """
+
+    def __init__(self, in_channels, fpn_channels=256, **kwargs):
+        super().__init__(MobileNetV3Small(in_channels=in_channels, **kwargs), channels=fpn_channels)
+
+
+class MobileNetV3LargeFPN(FPN):
+    """Feature Pyramid Network with MobileNetV3Large.
+
+    Examples:
+        ```
+        >>> import torch
+        >>> from celldetection import models
+        >>> model = models.MobileNetV3LargeFPN(in_channels=3)
+        >>> out: dict = model(torch.rand(1, 3, 256, 256))
+        >>> for k, v in out.items():
+        ...     print(k, v.shape)
+        0 torch.Size([1, 256, 128, 128])
+        1 torch.Size([1, 256, 64, 64])
+        2 torch.Size([1, 256, 32, 32])
+        3 torch.Size([1, 256, 16, 16])
+        4 torch.Size([1, 256, 8, 8])
+        pool torch.Size([1, 256, 4, 4])
+        ```
+    """
+
+    def __init__(self, in_channels, fpn_channels=256, **kwargs):
+        super().__init__(MobileNetV3Large(in_channels=in_channels, **kwargs), channels=fpn_channels)
