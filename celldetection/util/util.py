@@ -106,12 +106,42 @@ def asnumpy(v):
         raise ValueError(f'Type not supported: {type(v)}')
 
 
-def fetch_model(name, *args, **kwargs):
-    return load_state_dict_from_url(f'https://celldetection.org/torch/models/{name}.pt', *args, **kwargs)
+def fetch_model(name, map_location=None, **kwargs):
+    """ Fetch model.
+
+    Loads model or state dict from url.
+
+    Args:
+        name: Model name hosted on `celldetection.org` or url. Urls must start with 'http'.
+        map_location: A function, `torch.device`, string or a dict specifying how to remap storage locations.
+        **kwargs: From the doc of `torch.models.utils.load_state_dict_from_url`.
+
+    """
+    url = name if name.startswith('http') else f'https://celldetection.org/torch/models/{name}.pt'
+    return load_state_dict_from_url(url, map_location=map_location, **kwargs)
 
 
-def random_code_name(chars=4):
-    a, b, s = [i for i in 'aeiou'], [i for i in 'tskyrhzjgqmxlvnfcpwbd'], ''
+def random_code_name(chars=4) -> str:
+    """Random code name.
+
+    Generates random code names that are somewhat pronounceable and memorable.
+
+    Examples:
+        ```
+        >>> from celldetection import util
+        >>> util.random_code_name()
+        kolo
+        >>> util.random_code_name(6)
+        lotexo
+        ```
+
+    Args:
+        chars: Number of characters.
+
+    Returns:
+        String
+    """
+    a, b = [i for i in 'aeiou'], [i for i in 'tskyrhzjgqmxlvnfcpwbd']
     return ''.join([np.random.choice(b if j % 2 == 0 else a) for j in range(chars)])
 
 
@@ -122,10 +152,10 @@ def dict_hash(dictionary: TDict[str, Any]) -> str:
         https://www.doc.ic.ac.uk/~nuric/coding/how-to-hash-a-dictionary-in-python.html
 
     Args:
-        dictionary:
+        dictionary: A dictionary.
 
     Returns:
-
+        Md5 hash of the dictionary as string.
     """
     dhash = hashlib.md5()
     dhash.update(json.dumps(dictionary, sort_keys=True).encode())
