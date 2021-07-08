@@ -1,4 +1,7 @@
 # celldetection
+
+[![Downloads](https://pepy.tech/badge/celldetection)](https://pepy.tech/project/celldetection)
+
 ## 🛠 Install
 Make sure you have [PyTorch](https://pytorch.org/get-started/locally/) installed.
 ### PyPI
