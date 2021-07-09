@@ -89,13 +89,16 @@ def relabel_(label_stack, axis=2):
         axis: Channel axis.
     """
     assert label_stack.ndim == 3
+    neg_m = label_stack < 0
     cur_max = 0
     for channel in range(label_stack.shape[axis]):
-        stack_ = label_stack[(slice(None),) * axis + (channel,)]
-        stack_ = morphology.label(stack_)
+        stack_ = morphology.label(label_stack[(slice(None),) * axis + (channel,)])
         for u in set(np.unique(stack_)) - {0}:
+            mask = stack_ == u
+            if np.any(np.logical_and(mask, neg_m[(slice(None),) * axis + (channel,)])):
+                continue
             cur_max += 1
-            label_stack[stack_ == u, channel] = cur_max
+            label_stack[mask, channel] = cur_max
 
 
 def unary_masks2labels(unary_masks, transpose=True):
