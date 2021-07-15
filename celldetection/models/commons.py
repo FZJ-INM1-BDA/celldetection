@@ -1,5 +1,7 @@
 import torch.nn as nn
 
+__all__ = ['TwoConvBnRelu']
+
 
 class TwoConvBnRelu(nn.Sequential):
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1, mid_channels=None, **kwargs):

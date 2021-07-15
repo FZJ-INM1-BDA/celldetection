@@ -3,6 +3,8 @@ import gc
 from time import time
 import numpy as np
 
+__all__ = ['start_timer', 'stop_timer', 'print_timing']
+
 TIMINGS = {}
 
 
@@ -26,7 +28,8 @@ def convert_seconds(seconds):
 
 
 def seconds_to_str(seconds):
-    s = [f'{i} {n[:-1] if i == 1 else n}' for i, n in zip(convert_seconds(seconds), ('days', 'hours', 'minutes', 'seconds'))]
+    s = [f'{i} {n[:-1] if i == 1 else n}' for i, n in
+         zip(convert_seconds(seconds), ('days', 'hours', 'minutes', 'seconds'))]
     s = ', '.join(s)
     return s
 

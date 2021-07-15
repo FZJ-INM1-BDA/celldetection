@@ -1,6 +1,8 @@
 import torch
 from ..util.util import asnumpy
 
+__all__ = ['Inference']
+
 
 class Inference:
     def __init__(self, model, device=None, amp=False, transforms=None):

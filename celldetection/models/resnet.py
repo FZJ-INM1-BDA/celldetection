@@ -4,6 +4,9 @@ from torch.nn import functional as F
 from torchvision.models.resnet import ResNet as RN, Bottleneck, BasicBlock
 from ..util.util import Dict
 
+__all__ = ['get_resnet', 'ResNet50', 'ResNet34', 'ResNet18', 'ResNet152', 'ResNet101', 'WideResNet101_2',
+           'WideResNet50_2', 'ResNeXt152_32x8d', 'ResNeXt101_32x8d', 'ResNeXt50_32x4d']
+
 
 def make_res_layer(block, inplanes, planes, blocks, norm_layer=nn.BatchNorm2d, base_width=64, groups=1, stride=1,
                    dilation=1, dilate=False, **kwargs) -> nn.Module:

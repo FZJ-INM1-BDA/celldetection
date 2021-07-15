@@ -13,6 +13,10 @@ from .unet import U22, SlimU22, WideU22
 from .fpn import ResNet34FPN, ResNet18FPN, ResNet50FPN, ResNet101FPN, ResNet152FPN, ResNeXt50FPN, \
     ResNeXt101FPN, ResNeXt152FPN, WideResNet50FPN, WideResNet101FPN, MobileNetV3LargeFPN, MobileNetV3SmallFPN
 
+__all__ = ['CPN', 'CpnSlimU22', 'CpnU22', 'CpnWideU22', 'CpnResNet18FPN', 'CpnResNet34FPN', 'CpnResNet50FPN',
+           'CpnResNet101FPN', 'CpnResNet152FPN', 'CpnResNeXt50FPN', 'CpnResNeXt101FPN', 'CpnResNeXt152FPN',
+           'CpnWideResNet50FPN', 'CpnWideResNet101FPN', 'CpnMobileNetV3LargeFPN', 'CpnMobileNetV3SmallFPN']
+
 
 class ReadOut(nn.Module):
     def __init__(

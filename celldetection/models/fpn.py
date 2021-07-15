@@ -4,6 +4,10 @@ from .resnet import ResNet18, ResNet34, ResNet50, ResNet101, ResNet152, ResNeXt5
     ResNeXt152_32x8d, WideResNet50_2, WideResNet101_2
 from .mobilenetv3 import MobileNetV3Large, MobileNetV3Small
 
+__all__ = ['FPN', 'ResNeXt50FPN', 'ResNeXt101FPN', 'ResNet18FPN', 'ResNet34FPN', 'ResNeXt152FPN', 'WideResNet50FPN',
+           'WideResNet101FPN', 'ResNet50FPN', 'ResNet101FPN', 'ResNet152FPN', 'MobileNetV3SmallFPN',
+           'MobileNetV3LargeFPN']
+
 
 class FPN(BackboneWithFPN):
     def __init__(self, backbone, channels=256, return_layers: dict = None):

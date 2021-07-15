@@ -2,6 +2,8 @@ import torch
 import torch.nn.functional as F
 from typing import List
 
+__all__ = ['downsample_labels']
+
 
 def downsample_labels(inputs, size: List[int]):
     """
