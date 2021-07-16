@@ -1,39 +1,36 @@
-""" CellDetection is a package for efficient and robust cell detection with PyTorch.
-
-CellDetection is licensed under Apache License, Version 2.0.
-
-"""
-
-DOCSTRING = (__doc__ or '').split("\n")
-
 from setuptools import setup
+from os.path import join, dirname, abspath
 
-requirements = [
-    'numpy',
-    'scikit-image',
-    'scipy',
-    'opencv-python',
-    'torch>=1.9.0',
-    'torchvision>=0.10.0',
-    'seaborn',
-    'matplotlib',
-    'tqdm',
-    'h5py',
-    'setuptools',
-]
+
+def read_utf8(*args):
+    with open(join(*args), encoding="utf-8") as f:
+        return f.read()
+
+
+directory, m = dirname(abspath(__file__)), {}
+exec(read_utf8(directory, 'celldetection', '__meta__.py'), m)
+requirements = read_utf8(directory, 'requirements.txt').strip().split("\n")
+long_description = read_utf8(directory, 'README.md')
 
 setup(
-    author="Eric Upschulte",
-    author_email='e.upschulte@fz-juelich.de',
-    name='celldetection',
-    version='0.2.0',
-    description=DOCSTRING[0],
-    long_description="\n".join(DOCSTRING[2:]),
-    url='https://celldetection.org',
+    author=m['__author__'],
+    author_email=m['__email__'],
+    name=m['__title__'],
+    version=m['__version__'],
+    description=m['__summary__'],
+    long_description=long_description,
+    long_description_content_type='text/markdown',
+    url=m['__url__'],
     packages=['celldetection', 'celldetection.data', 'celldetection.models', 'celldetection.ops', 'celldetection.util',
               'celldetection.visualization'],
     install_requires=requirements,
-    license='Apache License, Version 2.0',
+    license=m['__license__'],
     keywords=['cell', 'detection', 'object', 'segmentation', 'pytorch', 'cpn', 'contour', 'proposal', 'network', 'deep',
-              'learning', 'unet', 'fzj', 'julich', 'juelich', 'ai']
+              'learning', 'unet', 'fzj', 'julich', 'juelich', 'ai'],
+    classifiers=[
+        'Topic :: Scientific/Engineering :: Artificial Intelligence',
+        'Topic :: Scientific/Engineering :: Medical Science Apps.',
+        'License :: OSI Approved :: Apache Software License',
+        'Operating System :: OS Independent'
+    ]
 )
