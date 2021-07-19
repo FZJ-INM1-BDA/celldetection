@@ -9,7 +9,7 @@ import hashlib
 import json
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
-           'dict_hash', 'fetch_image', 'random_seed']
+           'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_']
 
 
 class Dict(dict):
@@ -206,3 +206,32 @@ def random_seed(seed, backends=False, deterministic_torch=True):
         cudnn.benchmark = False
     if deterministic_torch and 'use_deterministic_algorithms' in dir(torch):
         torch.use_deterministic_algorithms(True)
+
+
+def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, **kwargs):
+    """Tweak module.
+
+    Sets attributes for all modules that are instances of given `class_or_tuple`.
+
+    Examples:
+        ```
+        >>> import celldetection as cd, torch.nn as nn
+        >>> model = cd.models.ResNet18(in_channels=3)
+        >>> cd.util.tweak_module_(model, nn.BatchNorm2d, momentum=0.05)  # sets momentum to 0.05
+        ```
+
+    Notes:
+        This is an in-place operation.
+
+    Args:
+        module: PyTorch `Module`.
+        class_or_tuple: All instances of given `class_or_tuple` are to be tweaked.
+        must_exist: If `True` an AttributeError is raised if keywords do not exist.
+        **kwargs: Attributes to be tweaked: `<attribute_name>=<value>`.
+    """
+    for mod in module.modules():
+        if isinstance(mod, class_or_tuple):
+            for k, v in kwargs.items():
+                if must_exist:
+                    getattr(mod, k)
+                setattr(mod, k, v)
