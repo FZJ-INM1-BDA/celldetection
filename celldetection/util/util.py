@@ -74,6 +74,7 @@ def reduce_loss_dict(losses: dict, divisor):
 
 def add_to_loss_dict(d: dict, key: str, loss: torch.Tensor, weight=None):
     dk = d[key]
+    torch.nan_to_num_(loss, 0., 0., 0.)
     if weight is not None:
         loss = loss * weight
     d[key] = loss if dk is None else dk + loss
