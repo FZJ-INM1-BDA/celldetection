@@ -59,6 +59,8 @@ def lookup_nn(item: str, *a, src=nn, call=True, inplace=True, **kw):
     elif isinstance(item, str):
         l_item = item.lower()
         v = next((getattr(src, i) for i in dir(src) if i.lower() == l_item))
+    elif isinstance(item, nn.Module):
+        return item
     else:
         v = item
     if call:
