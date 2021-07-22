@@ -1,6 +1,8 @@
 import torch.nn as nn
+from torch import Tensor, tanh
 
-__all__ = ['TwoConvBnRelu']
+
+__all__ = ['TwoConvBnRelu', 'ScaledTanh']
 
 
 class TwoConvBnRelu(nn.Sequential):
@@ -15,3 +17,12 @@ class TwoConvBnRelu(nn.Sequential):
             nn.BatchNorm2d(out_channels),
             nn.ReLU()
         )
+
+
+class ScaledTanh(nn.Module):
+    def __init__(self, factor):
+        super(ScaledTanh, self).__init__()
+        self.factor = factor
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        return tanh(inputs) * self.factor
