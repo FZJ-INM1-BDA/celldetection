@@ -1,8 +1,12 @@
-# celldetection
+# Cell Detection
 
 [![Downloads](https://pepy.tech/badge/celldetection?l)](https://pepy.tech/project/celldetection)
 [![PyPI](https://img.shields.io/pypi/v/celldetection?l)](https://pypi.org/project/celldetection/)
 
+## ⭐ Showcase
+
+![bbbc039](https://raw.githubusercontent.com/FZJ-INM1-BDA/celldetection/main/assets/bbbc039-cpn-u22-demo.png "BBBC039 demo with CpnU22 - Find the dataset here: https://bbbc.broadinstitute.org/BBBC039")
+*https://bbbc.broadinstitute.org/BBBC039 (CC0)*
 
 ## 🛠 Install
 Make sure you have [PyTorch](https://pytorch.org/get-started/locally/) installed.
