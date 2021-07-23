@@ -8,7 +8,7 @@ def rel_location2abs_location(locations, cache: Dict[str, Tensor] = None, cache_
     """
 
     Args:
-        locations:
+        locations: Tensor[..., 2, h, w]. In xy format.
         cache: can be None.
         cache_size:
 
@@ -16,7 +16,7 @@ def rel_location2abs_location(locations, cache: Dict[str, Tensor] = None, cache_
 
     """
     d = locations.device
-    (h, w), order = locations.shape[-2:], locations.shape[1]
+    (h, w) = locations.shape[-2:]
     offset = None
     if cache is not None:
         key = str((h, w, d))
@@ -82,7 +82,6 @@ def fouriers2contours(fourier, locations, samples=64, sampling=None, cache: Dict
                 del cache[next(iter(cache.keys()))]
             cache[con_key] = con
     con = con + locations[..., None, :]
-
     con += (fourier[..., None, (1, 3)] * c_sin[(...,) + (None,) * 1]).sum(-3)
     con += (fourier[..., None, (0, 2)] * c_cos[(...,) + (None,) * 1]).sum(-3)
     return con, sampling_
@@ -104,7 +103,7 @@ def scale_contours(actual_size, original_size, contours):
         original_size: Original image size. E.g. (512, 512)
         contours: Contours that are to be scaled to from `actual_size` to `original_size`.
             E.g. array of shape (1, num_points, 2) for a single contour or tuple/list of (num_points, 2) arrays.
-            Last dimension is interpreted as (x, y)
+            Last dimension is interpreted as (x, y).
 
     Returns:
         Rescaled contours.
