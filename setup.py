@@ -23,6 +23,7 @@ setup(
     url=m['__url__'],
     packages=['celldetection', 'celldetection.data', 'celldetection.models', 'celldetection.ops', 'celldetection.util',
               'celldetection.visualization'],
+    package_data={'': ['LICENSE', 'requirements.txt', 'README.md']},
     install_requires=requirements,
     license=m['__license__'],
     keywords=['cell', 'detection', 'object', 'segmentation', 'pytorch', 'cpn', 'contour', 'proposal', 'network', 'deep',
