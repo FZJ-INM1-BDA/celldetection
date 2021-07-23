@@ -9,7 +9,7 @@ import hashlib
 import json
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
-           'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_']
+           'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict']
 
 
 class Dict(dict):
