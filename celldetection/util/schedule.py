@@ -5,7 +5,7 @@ from collections import OrderedDict
 from torch.nn import Module
 from torch import optim
 
-__all__ = ['Config', 'Schedule', 'conf2optimizer', 'conf2scheduler', 'conf2augmentation', 'conf2tweaks_']
+__all__ = ['Config', 'conf2optimizer', 'conf2scheduler', 'conf2augmentation', 'conf2tweaks_']
 
 
 def conf2optimizer(settings: dict, params):
