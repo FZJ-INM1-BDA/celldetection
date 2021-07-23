@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from collections import OrderedDict
 from typing import Dict
 from ..util.util import add_to_loss_dict, reduce_loss_dict, fetch_model
+from .commons import ScaledTanh
 from ..ops.commons import downsample_labels
 from ..ops.cpn import rel_location2abs_location, fouriers2contours, scale_contours, scale_fourier, batched_box_nms, \
     order_weighting, resolve_refinement_buckets
@@ -118,11 +119,11 @@ class CPNCore(nn.Module):
                 refinement_head_input_channels, 2 * refinement_buckets,
                 kernel_size=7,
                 padding=3,
-                final_activation='tanh',
+                final_activation=ScaledTanh(refinement_margin),
                 channels_mid=refinement_head_channels,
                 stride=refinement_head_stride
             )
-            self.refinement_margin = refinement_margin
+            self.refinement_margin = 1.  # legacy
         else:
             self.refinement_head = None
             self.refinement_margin = None
