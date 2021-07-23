@@ -452,6 +452,8 @@ class CPN(nn.Module):
             selected_contours = det_indices
         else:
             selected_contours = selected_contour_proposals
+        selected_contours[..., 0].clamp_(0, original_size[1] - 1)
+        selected_contours[..., 1].clamp_(0, original_size[0] - 1)
 
         # Bounding boxes
         if selected_contours.numel() > 0:
