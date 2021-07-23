@@ -1,8 +1,32 @@
-from .util import dict_hash, Dict
+from .util import dict_hash, Dict, tweak_module_, lookup_nn
 import json
+from itertools import product
+from collections import OrderedDict
 from torch.nn import Module
+from torch import optim
 
-__all__ = ['Config']
+__all__ = ['Config', 'Schedule', 'conf2optimizer', 'conf2scheduler', 'conf2augmentation', 'conf2tweaks_']
+
+
+def conf2optimizer(settings: dict, params):
+    assert len(settings) == 1
+    return getattr(optim, next(iter(settings.keys())))(params=params, **next(iter(settings.values())))
+
+
+def conf2scheduler(settings: dict, optimizer):
+    assert len(settings) == 1
+    return getattr(optim.lr_scheduler, next(iter(settings.keys())))(optimizer=optimizer,
+                                                                    **next(iter(settings.values())))
+
+
+def conf2augmentation(settings: dict):
+    import albumentations as A
+    return A.Compose([getattr(A, k)(**v) for k, v in settings.items()])
+
+
+def conf2tweaks_(settings: dict, module: Module):
+    for key, kwargs in settings.items():
+        tweak_module_(module, lookup_nn(key, call=False), **kwargs)
 
 
 class Config(Dict):
