@@ -19,11 +19,12 @@ pip install celldetection
 ```
 pip install git+https://github.com/FZJ-INM1-BDA/celldetection.git
 ```
-
+The examples already include toy data, so you can simply install it and start.
 ## 💡 How to train 
-[Here is a multi-class example with toy data.](https://github.com/FZJ-INM1-BDA/celldetection/blob/main/demos/demo-multiclass.ipynb)
-
-If your data contains images and [label images](https://scikit-image.org/docs/dev/api/skimage.morphology.html#skimage.morphology.label), you can exchange the toy data with your own data.
+Here you can see some examples of how to train a detection model.
+The examples already include toy data, so you can get started right away.
+- [Train your own model](https://github.com/FZJ-INM1-BDA/celldetection/blob/main/demos/demo-binary.ipynb)
+- [Train a model with multiple object classes](https://github.com/FZJ-INM1-BDA/celldetection/blob/main/demos/demo-multiclass.ipynb)
 
 ## 🔬 Models
 `from celldetection import models`
