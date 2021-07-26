@@ -1,6 +1,7 @@
 # Cell Detection
 
 [![Downloads](https://pepy.tech/badge/celldetection?l)](https://pepy.tech/project/celldetection)
+[![Test](https://github.com/FZJ-INM1-BDA/celldetection/workflows/Test/badge.svg)](https://github.com/FZJ-INM1-BDA/celldetection/actions?query=workflow%3ATest)
 [![PyPI](https://img.shields.io/pypi/v/celldetection?l)](https://pypi.org/project/celldetection/)
 
 ## ⭐ Showcase
