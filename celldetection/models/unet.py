@@ -5,10 +5,16 @@ from torch.nn import functional as F
 from torchvision.models._utils import IntermediateLayerGetter
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork
 from collections import OrderedDict
-from typing import List, Tuple, Dict
+from typing import List, Dict
 from .commons import TwoConvBnRelu
+from .resnet import *
+from .mobilenetv3 import *
 
-__all__ = ['UNetEncoder', 'UNet', 'U12', 'U17', 'U22', 'SlimU22', 'WideU22']
+__all__ = [
+    'UNetEncoder', 'UNet', 'U12', 'U17', 'U22', 'SlimU22', 'WideU22', 'MobileNetV3Large', 'MobileNetV3Small',
+    'ResNet18UNet', 'ResNet34UNet', 'ResNet50UNet', 'ResNet101UNet', 'ResNet152UNet', 'ResNeXt50UNet', 'ResNeXt101UNet',
+    'ResNeXt152UNet', 'WideResNet50UNet', 'WideResNet101UNet'
+]
 
 
 class UNetEncoder(nn.Sequential):
@@ -142,7 +148,7 @@ class UNet(BackboneAsUNet):
             >>> model = UNet(UNetEncoder(in_channels=3, base_channels=16), out_channels=2)
             >>> o = model(torch.rand(1, 3, 256, 256))
             >>> for k, v in o.items():
-            >>>     print(k, "\t", v.shape)
+            ...     print(k, "\t", v.shape)
             out 	 torch.Size([1, 2, 256, 256])
             0 	 torch.Size([1, 16, 256, 256])
             1 	 torch.Size([1, 32, 128, 128])
@@ -240,3 +246,63 @@ class U12(UNet):
             out_channels: Number of output channels. If set to 0, the output layer is omitted.
         """
         super().__init__(UNetEncoder(in_channels=in_channels, depth=3), out_channels=out_channels)
+
+
+class ResNet18UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(ResNet18(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class ResNet34UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(ResNet34(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class ResNet50UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(ResNet50(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class ResNet101UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(ResNet101(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class ResNet152UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(ResNet152(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class ResNeXt50UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(ResNeXt50_32x4d(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class ResNeXt101UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(ResNeXt101_32x8d(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class ResNeXt152UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(ResNeXt152_32x8d(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class WideResNet50UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(WideResNet50_2(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class WideResNet101UNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(WideResNet101_2(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class MobileNetV3SmallUNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(MobileNetV3Small(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
+
+
+class MobileNetV3LargeUNet(UNet):
+    def __init__(self, in_channels, out_channels, res_kwargs=None, **kwargs):
+        super().__init__(MobileNetV3Large(in_channels, **(res_kwargs or {})), out_channels, **kwargs)
