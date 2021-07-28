@@ -6,8 +6,15 @@
 
 ## ⭐ Showcase
 
+###### Nuclei of U2OS cells in a chemical screen
+
 ![bbbc039](https://raw.githubusercontent.com/FZJ-INM1-BDA/celldetection/main/assets/bbbc039-cpn-u22-demo.png "BBBC039 demo with CpnU22 - Find the dataset here: https://bbbc.broadinstitute.org/BBBC039")
 *https://bbbc.broadinstitute.org/BBBC039 (CC0)*
+
+###### P. vivax (malaria) infected human blood 
+
+![bbbc041](https://raw.githubusercontent.com/FZJ-INM1-BDA/celldetection/main/assets/bbbc041-cpn-u22-demo.png "BBBC041 demo with CpnU22 - Find the dataset here: https://bbbc.broadinstitute.org/BBBC041")
+*https://bbbc.broadinstitute.org/BBBC041 (CC BY-NC-SA 3.0)*
 
 ## 🛠 Install
 Make sure you have [PyTorch](https://pytorch.org/get-started/locally/) installed.
@@ -20,7 +27,6 @@ pip install celldetection
 ```
 pip install git+https://github.com/FZJ-INM1-BDA/celldetection.git
 ```
-The examples already include toy data, so you can simply install it and start.
 ## 💡 How to train 
 Here you can see some examples of how to train a detection model.
 The examples already include toy data, so you can get started right away.
