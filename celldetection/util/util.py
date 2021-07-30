@@ -7,9 +7,13 @@ from torch import Tensor
 from torchvision.models.utils import load_state_dict_from_url
 import hashlib
 import json
+from tqdm import tqdm
+from os.path import join
+from os import makedirs
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
-           'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict']
+           'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
+           'random_code_name_dir']
 
 
 class Dict(dict):
@@ -113,7 +117,7 @@ def asnumpy(v):
 
 
 def fetch_model(name, map_location=None, **kwargs):
-    """ Fetch model.
+    """Fetch model.
 
     Loads model or state dict from url.
 
@@ -149,6 +153,28 @@ def random_code_name(chars=4) -> str:
     """
     a, b = [i for i in 'aeiou'], [i for i in 'tskyrhzjgqmxlvnfcpwbd']
     return ''.join([np.random.choice(b if j % 2 == 0 else a) for j in range(chars)])
+
+
+def random_code_name_dir(directory='./out', chars=6):
+    """Random code name directory.
+
+    Creates random code name and creates a subdirectory with said name under `directory`.
+    Code names that are already taken (subdirectory already exists) are not reused.
+
+    Args:
+        directory: Root directory.
+        chars: Number of characters for the code name.
+
+    Returns:
+        Tuple of code name and created directory.
+    """
+    try:
+        code_name = random_code_name(chars=chars)
+        out_dir = join(directory, code_name)
+        makedirs(out_dir)
+    except FileExistsError:
+        return random_code_name_dir(directory)
+    return code_name, out_dir
 
 
 def dict_hash(dictionary: TDict[str, Any]) -> str:
