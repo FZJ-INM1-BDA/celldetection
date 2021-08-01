@@ -4,3 +4,4 @@ from .cpn import CPNTargetGenerator, contours2labels, render_contour, clip_conto
 from .misc import to_tensor, transpose_spatial, universal_dict_collate_fn, normalize_percentile, random_crop, \
     channels_last2channels_first, channels_first2channels_last
 from .instance_eval import LabelMatcherList, LabelMatcher
+from .datasets import *
