@@ -13,7 +13,7 @@ from os import makedirs
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
-           'random_code_name_dir']
+           'random_code_name_dir', 'get_device', 'num_params']
 
 
 class Dict(dict):
@@ -264,3 +264,14 @@ def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, **kwargs):
                 if must_exist:
                     getattr(mod, k)
                 setattr(mod, k, v)
+
+
+def get_device(module: Union[nn.Module, Tensor]):
+    if hasattr(module, 'device'):
+        return module.device
+    p: nn.parameter.Parameter = next(module.parameters())
+    return p.device
+
+
+def num_params(module: nn.Module, trainable=None):
+    return sum(p.numel() for p in module.parameters() if (trainable is None or p.requires_grad == trainable))
