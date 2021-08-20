@@ -1,5 +1,6 @@
 import numpy as np
 from skimage import morphology
+import cv2
 
 
 def remove_partials_(label_stack, border=1, constant=-1):
@@ -116,3 +117,12 @@ def unary_masks2labels(unary_masks, transpose=True):
     if transpose:
         lbl = lbl.transpose((1, 2, 0))
     return lbl
+
+
+def boxes2masks(boxes, size):
+    masks = [None] * len(boxes)
+    for idx, b in enumerate(boxes):
+        mask = masks[idx] = np.zeros(size, dtype='uint8')
+        xmin, ymin, xmax, ymax = b
+        cv2.rectangle(mask, (xmin, ymin), (xmax, ymax), idx + 1, thickness=-1)
+    return masks
