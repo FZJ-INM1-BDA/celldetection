@@ -20,7 +20,7 @@
 Make sure you have [PyTorch](https://pytorch.org/get-started/locally/) installed.
 ### PyPI
 ```
-pip install celldetection
+pip install -U celldetection
 ```
 
 ### GitHub
