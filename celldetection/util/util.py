@@ -13,7 +13,7 @@ from os import makedirs
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
-           'random_code_name_dir', 'get_device', 'num_params']
+           'random_code_name_dir', 'get_device', 'num_params', 'count_submodules']
 
 
 class Dict(dict):
@@ -273,5 +273,24 @@ def get_device(module: Union[nn.Module, Tensor]):
     return p.device
 
 
-def num_params(module: nn.Module, trainable=None):
+def num_params(module: nn.Module, trainable=None) -> int:
     return sum(p.numel() for p in module.parameters() if (trainable is None or p.requires_grad == trainable))
+
+
+def count_submodules(module: nn.Module, class_or_tuple) -> int:
+    """Count submodules.
+
+    Examples:
+        ```
+        >>> count_submodules(cd.models.U22(1, 0), nn.Conv2d)
+        22
+        ```
+
+    Args:
+        module: PyTorch `Module`.
+        class_or_tuple: All instances of given `class_or_tuple` are to be counted.
+
+    Returns:
+        Count.
+    """
+    return np.sum([1 for m in module.modules() if isinstance(m, class_or_tuple)])
