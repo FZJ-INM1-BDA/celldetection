@@ -22,7 +22,7 @@ setup(
     long_description_content_type='text/markdown',
     url=m['__url__'],
     packages=['celldetection', 'celldetection.data', 'celldetection.data.datasets', 'celldetection.models',
-              'celldetection.ops', 'celldetection.util', 'celldetection.visualization'],
+              'celldetection.mpi', 'celldetection.ops', 'celldetection.util', 'celldetection.visualization'],
     package_data={'': ['LICENSE', 'requirements.txt', 'README.md']},
     include_package_data=True,
     install_requires=requirements,
