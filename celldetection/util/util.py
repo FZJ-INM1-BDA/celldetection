@@ -13,7 +13,7 @@ from os import makedirs
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
-           'random_code_name_dir', 'get_device', 'num_params', 'count_submodules']
+           'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch']
 
 
 class Dict(dict):
@@ -235,6 +235,46 @@ def random_seed(seed, backends=False, deterministic_torch=True):
         cudnn.benchmark = False
     if deterministic_torch and 'use_deterministic_algorithms' in dir(torch):
         torch.use_deterministic_algorithms(True)
+
+
+def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, scheduler=None):
+    """Basic train function.
+
+    Notes:
+        - Model should return dictionary: {'loss': Tensor[], ...}
+        - Batch from `train_loader` should be a dictionary: {'inputs': Tensor[...], ...}
+        - Model must be callable: `model(batch['inputs'], targets=batch)`
+
+    Args:
+        model: Model.
+        train_loader: Data loader.
+        device: Device.
+        optimizer: Optimizer.
+        desc: Description, appears in progress print.
+        scaler: Gradient scaler. If set PyTorch's autocast feature is used.
+        scheduler: Scheduler. Step called after epoch.
+    """
+    from torch.cuda.amp import autocast
+    model.train()
+    tq = tqdm(train_loader, desc=desc)
+    for batch_idx, batch in enumerate(tq):
+        batch: dict = to_device(batch, device)
+        optimizer.zero_grad()
+        with autocast(scaler is not None):
+            outputs: dict = model(batch['inputs'], targets=batch)
+        loss = outputs['loss']
+        info = [] if desc is None else []
+        info.append('loss %g' % np.round(asnumpy(loss), 3))
+        tq.desc = ' - '.join(info)
+        if scaler is None:
+            loss.backward()
+            optimizer.step()
+        else:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+    if scheduler is not None:
+        scheduler.step()
 
 
 def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, **kwargs):
