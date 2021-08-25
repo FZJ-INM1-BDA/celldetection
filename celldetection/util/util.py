@@ -10,10 +10,12 @@ import json
 from tqdm import tqdm
 from os.path import join
 from os import makedirs
+import pynvml as nv
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
-           'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch']
+           'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
+           'GpuStats']
 
 
 class Dict(dict):
@@ -334,3 +336,57 @@ def count_submodules(module: nn.Module, class_or_tuple) -> int:
         Count.
     """
     return np.sum([1 for m in module.modules() if isinstance(m, class_or_tuple)])
+
+
+class Bytes(int):
+    UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB', 'BB']
+
+    def __str__(self):
+        n = np.log2(int(self)) if self > 0 else 0
+        s = None
+        for i, tag in enumerate(self.UNITS):
+            if n < (i + 1) * 10 or i == len(self.UNITS) - 1:
+                s = str(np.round(float(self) / (2 ** (10 * i)), 2)) + tag
+                break
+        return s
+
+    __repr__ = __str__
+
+
+class Percent(float):
+    def __str__(self):
+        return '%g%%' % np.round(self, 2)
+
+    __repr__ = __str__
+
+
+class GpuStats:
+    def __init__(self, delimiter=', '):
+        try:
+            nv.nvmlInit()
+            self.num = nv.nvmlDeviceGetCount()
+        except:
+            self.num = 0
+        self.delimiter = delimiter
+
+    def __len__(self):
+        return self.num
+
+    def __getitem__(self, item: int):
+        if item >= len(self):
+            raise IndexError
+        h = nv.nvmlDeviceGetHandleByIndex(item)
+        idx = nv.nvmlDeviceGetIndex(h)
+        mem = nv.nvmlDeviceGetMemoryInfo(h)
+        uti = nv.nvmlDeviceGetUtilizationRates(h)
+        return idx, dict(
+            free=Bytes(mem.free),
+            used=Bytes(mem.used),
+            util=Percent(uti.gpu)
+        )
+
+    def __str__(self):
+        deli = self.delimiter
+        return deli.join([f'gpu{i}({deli.join([f"{k}: {v}" for k, v in stat.items()])})' for i, stat in self])
+
+    __repr__ = __str__

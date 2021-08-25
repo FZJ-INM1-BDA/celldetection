@@ -9,4 +9,5 @@ seaborn
 tqdm
 h5py
 pillow
+pynvml>=11.0.0
 albumentations
