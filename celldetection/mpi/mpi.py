@@ -118,7 +118,7 @@ def query(comm, source: int, forward_stop_signal=None):
 
 
 @assert_mpi
-def serve(comm, ranks: set, iterator, progress=False, desc=None):
+def serve(comm, ranks: set, iterator, progress=False, desc=None, stats=None):
     """Serve.
 
     Serves items of `iterator` to `ranks`.
@@ -130,6 +130,7 @@ def serve(comm, ranks: set, iterator, progress=False, desc=None):
         iterator: Iterator.
         progress: Whether to show progress.
         desc: Description, visible in progress report.
+        stats: Dictionary of callbacks: {stat_name: callback}
 
     Returns:
         List of results if `ranks` send results, None otherwise.
@@ -141,13 +142,15 @@ def serve(comm, ranks: set, iterator, progress=False, desc=None):
     enum = enumerate(iterator)
     if progress:
         from tqdm import tqdm
-        enum = tqdm(enum, total=len(iterator), desc=desc)
+        enum = tqdm(enum, total=len(iterator), desc=str(desc))
     for idx, item in enum:
         result, status = recv(comm)
         if not (isinstance(result, type(next)) or result is next):
             indices.append(status.Get_tag())
             results.append(result)
         send(comm, item, status, tag=idx)
+        if progress and stats is not None:
+            enum.desc = ' - '.join([desc] + [str(v()) for v in stats])
     for _ in range(len(ranks)):
         result, status = recv(comm)
         ranks -= {status.Get_source()}
