@@ -2,7 +2,7 @@ import numpy as np
 import inspect
 import torch
 import torch.nn as nn
-from typing import Union, List, Tuple, Any, Dict as TDict
+from typing import Union, List, Tuple, Any, Dict as TDict, Iterator
 from torch import Tensor
 from torchvision.models.utils import load_state_dict_from_url
 import hashlib
@@ -15,7 +15,7 @@ import pynvml as nv
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
-           'GpuStats']
+           'GpuStats', 'trainable_params', 'frozen_params']
 
 
 class Dict(dict):
@@ -315,8 +315,20 @@ def get_device(module: Union[nn.Module, Tensor]):
     return p.device
 
 
-def num_params(module: nn.Module, trainable=None) -> int:
-    return sum(p.numel() for p in module.parameters() if (trainable is None or p.requires_grad == trainable))
+def _params(module: nn.Module, trainable=None, recurse=True) -> Iterator[nn.Parameter]:
+    return (p for p in module.parameters(recurse=recurse) if (trainable is None or p.requires_grad == trainable))
+
+
+def trainable_params(module: nn.Module, recurse=True) -> Iterator[nn.Parameter]:
+    return _params(module, True, recurse=recurse)
+
+
+def frozen_params(module: nn.Module, recurse=True) -> Iterator[nn.Parameter]:
+    return _params(module, False, recurse=recurse)
+
+
+def num_params(module: nn.Module, trainable=None, recurse=True) -> int:
+    return sum(p.numel() for p in _params(module, trainable, recurse=recurse))
 
 
 def count_submodules(module: nn.Module, class_or_tuple) -> int:
