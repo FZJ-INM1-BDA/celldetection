@@ -7,20 +7,63 @@ except ModuleNotFoundError as e:
     _ERR = e
     MPI = False
 
-__all__ = ['recv', 'send', 'sink', 'query', 'serve']
+__all__ = ['recv', 'send', 'sink', 'query', 'serve', 'all_filter', 'get_local_comm', 'get_hosts', 'get_comm']
 ANY_TAG = -1
 ANY_SOURCE = -2
 
 
 def assert_mpi(func):
-    def func_wrapper(self, *a, **k):
+    def func_wrapper(*a, **k):
         if not MPI:
             raise ModuleNotFoundError(
                 f'In order to use mpi functions, MPI must be installed. Could not import mpi4py.\n\n'
                 f'Check out: https://mpi4py.readthedocs.io/en/stable/install.html\n\n{str(_ERR)}')
-        return func(self, *a, **k)
+        return func(*a, **k)
 
     return func_wrapper
+
+
+@assert_mpi
+def get_hosts(comm, return_ranks=False):
+    host = MPI.Get_processor_name()
+    hosts = list(np.sort(np.unique(comm.allgather(host))))
+    res = host, hosts
+    if return_ranks:
+        node_rank = next(i for i, h in enumerate(hosts) if h == host)
+        node_ranks = len(list(hosts))
+        res += (node_rank, node_ranks)
+    return res
+
+
+@assert_mpi
+def get_comm(comm=None, return_ranks=False):
+    comm = comm or MPI.COMM_WORLD
+    res = comm,
+    if return_ranks:
+        rank = comm.Get_rank()
+        ranks = comm.Get_size()
+        res += rank, ranks
+    return res
+
+
+@assert_mpi
+def get_local_comm(comm, return_ranks=False, host=None, node_rank=None):
+    rank = comm.Get_rank()
+    if None in (host, node_rank):
+        host, _, node_rank, _ = get_hosts(comm, return_ranks=True)
+    comm_local = comm.Split(color=node_rank, key=rank)
+    res = comm_local,
+    if return_ranks:
+        local_rank = comm_local.Get_rank()
+        local_ranks = comm_local.Get_size()
+        res += (local_rank, local_ranks)
+    return res
+
+
+@assert_mpi
+def all_filter(comm, condition):
+    keep = set(k for k, v in comm.allgather((comm.Get_rank(), condition)) if v)
+    return keep, set(range(comm.Get_size())) - keep
 
 
 @assert_mpi
