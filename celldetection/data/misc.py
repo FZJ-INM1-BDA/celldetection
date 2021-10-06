@@ -70,7 +70,27 @@ def to_tensor(inputs: np.ndarray, spatial_dims=2, transpose=False, has_batch=Fal
         device=device, dtype=dtype)
 
 
-def universal_dict_collate_fn(batch) -> OrderedDict:
+def padding_stack(*images, axis=0) -> np.ndarray:
+    """Padding stack.
+
+    Stack images along `axis`. If images have different shapes all images are padded to larges shape.
+
+    Args:
+        *images: Images.
+        axis: Axis used for stacking.
+
+    Returns:
+        Array
+    """
+    shapes = np.array([i.shape for i in images])
+    pad = np.any([np.unique(shapes[:, col].size > 1 for col in range(shapes.shape[1]))])
+    if pad:
+        target_shape = np.max(shapes, 0)
+        images = [np.pad(i, [(0, ts - s) for s, ts in zip(i.shape, target_shape)]) for i in images]
+    return np.stack(images, axis=axis)
+
+
+def universal_dict_collate_fn(batch, check_padding=True) -> OrderedDict:
     results = OrderedDict({})
     ref = batch[0]
     for k in ref.keys():
@@ -81,7 +101,11 @@ def universal_dict_collate_fn(batch) -> OrderedDict:
                 axis=0)
             results[k] = to_tensor(results[k], transpose=False, spatial_dims=0, has_batch=True)
         else:
-            results[k] = np.stack([b[k] for b in batch], axis=0)
+            items = [b[k] for b in batch]
+            if check_padding:
+                results[k] = padding_stack(*items, axis=0)
+            else:
+                results[k] = np.stack(items, axis=0)
             results[k] = to_tensor(results[k], transpose=True, spatial_dims=2, has_batch=True)
     return results
 
