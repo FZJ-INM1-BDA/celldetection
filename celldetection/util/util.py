@@ -15,7 +15,7 @@ import pynvml as nv
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
-           'GpuStats', 'trainable_params', 'frozen_params', 'Tiling']
+           'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image']
 
 
 class Dict(dict):
@@ -210,6 +210,21 @@ def fetch_image(url, numpy=True):
     from PIL import Image
     img = Image.open(requests.get(url, stream=True).raw)
     return np.asarray(img) if numpy else img
+
+
+def load_image(name, method='imageio'):
+    if name.startswith('http'):
+        img = fetch_image(name)
+    elif method == 'imageio':
+        from imageio import imread
+        img = imread(name)
+    elif method == 'pytiff':
+        from pytiff import Tiff
+        with Tiff(name, 'r') as t:
+            img = t[:]
+    else:
+        raise ValueError(f'Could not load {name} with method {method}. Also note that URLs should start with "http".')
+    return img
 
 
 def random_seed(seed, backends=False, deterministic_torch=True):
