@@ -15,7 +15,7 @@ import pynvml as nv
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
-           'GpuStats', 'trainable_params', 'frozen_params']
+           'GpuStats', 'trainable_params', 'frozen_params', 'Tiling']
 
 
 class Dict(dict):
@@ -402,3 +402,39 @@ class GpuStats:
         return deli.join([f'gpu{i}({deli.join([f"{k}: {v}" for k, v in stat.items()])})' for i, stat in self])
 
     __repr__ = __str__
+
+
+class Tiling:
+    def __init__(self, tile_size: tuple, context_shape: tuple, overlap=0):
+        self.overlap = overlap
+        self.tile_size = tuple(tile_size)
+        self.context_size = context_shape[:len(self.tile_size)]
+        self.num_tiles_per_dim = np.ceil(np.array(self.context_size) / np.array(self.tile_size)).astype('int')
+        self.num_tiles = np.prod(self.num_tiles_per_dim)
+
+    def __len__(self):
+        return self.num_tiles
+
+    def __getitem__(self, item):
+        if item >= len(self):
+            raise IndexError
+        tile_index = np.unravel_index(item, shape=self.num_tiles_per_dim)
+        start = tile_index * np.array(self.tile_size)
+        stop = np.minimum(start + self.tile_size, self.context_size)
+        start_wo = np.maximum(start - self.overlap, 0)
+        stop_wo = np.minimum(stop + self.overlap, self.context_size)
+        start_ex = start - start_wo
+        stop_ex = start - start_wo + stop - start
+        return dict(
+            start=start,
+            stop=stop,
+            slices=tuple([slice(a, b) for a, b in zip(start, stop)]),
+            slices_with_overlap=tuple([slice(a, b) for a, b in zip(start_wo, stop_wo)]),
+            slices_to_remove_overlap=tuple([slice(a, b) for a, b in zip(start_ex, stop_ex)]),
+            start_ex=start_ex,
+            stop_ex=stop_ex,
+            start_with_overlap=start_wo,
+            stop_with_overlap=stop_wo,
+            num_tiles=self.num_tiles,
+            num_tiles_per_dim=self.num_tiles_per_dim
+        )
