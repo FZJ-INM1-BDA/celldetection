@@ -254,7 +254,7 @@ def random_seed(seed, backends=False, deterministic_torch=True):
         torch.use_deterministic_algorithms(True)
 
 
-def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, scheduler=None):
+def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, scheduler=None, gpu_stats=False):
     """Basic train function.
 
     Notes:
@@ -270,17 +270,23 @@ def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, 
         desc: Description, appears in progress print.
         scaler: Gradient scaler. If set PyTorch's autocast feature is used.
         scheduler: Scheduler. Step called after epoch.
+        gpu_stats: Whether to print GPU stats.
     """
     from torch.cuda.amp import autocast
     model.train()
     tq = tqdm(train_loader, desc=desc)
+    gpu_st = None
+    if gpu_stats:
+        gpu_st = GpuStats()
     for batch_idx, batch in enumerate(tq):
         batch: dict = to_device(batch, device)
         optimizer.zero_grad()
         with autocast(scaler is not None):
             outputs: dict = model(batch['inputs'], targets=batch)
         loss = outputs['loss']
-        info = [] if desc is None else []
+        info = [] if desc is None else [desc]
+        if gpu_st is not None:
+            info.append(str(gpu_st))
         info.append('loss %g' % np.round(asnumpy(loss), 3))
         tq.desc = ' - '.join(info)
         if scaler is None:
