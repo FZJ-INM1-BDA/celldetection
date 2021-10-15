@@ -3,13 +3,16 @@ import numpy as np
 _ERR = None
 try:
     from mpi4py import MPI
+
+    ANY_TAG = MPI.ANY_TAG
+    ANY_SOURCE = MPI.ANY_SOURCE
 except ModuleNotFoundError as e:
     _ERR = e
     MPI = False
+    ANY_TAG = -1
+    ANY_SOURCE = -2  # may differ depending on MPI implementation
 
 __all__ = ['recv', 'send', 'sink', 'query', 'serve', 'all_filter', 'get_local_comm', 'get_hosts', 'get_comm']
-ANY_TAG = -1
-ANY_SOURCE = -2
 
 
 def assert_mpi(func):
