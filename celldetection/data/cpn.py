@@ -84,9 +84,6 @@ def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
     for channel in np.split(labels, labels.shape[2], 2):
         crops += [(p.label, p.image) + p.bbox[:2] for p in regionprops(channel)]
     for label, crop, oy, ox in crops:
-        if crop.shape[:2] == (1, 1):
-            warnings.warn('labels2contours: Especially small area encountered. '
-                          'This might cause problem as it may result in an invalid contour of length 1.')
         crop.dtype = np.uint8
         r = cv2.findContours(crop, mode=mode, method=method, offset=(ox, oy))
         if len(r) == 3:  # be compatible with both existing versions of findContours
@@ -95,7 +92,10 @@ def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
             c, _ = r
         else:
             raise NotImplementedError('try different cv2 version')
-        contours[label], = c
+        c, = c
+        if len(c) == 1:
+            c = np.concatenate((c, c), axis=0)  # min len for other functions to work properly
+        contours[label] = c
     return contours
 
 
