@@ -11,11 +11,12 @@ from tqdm import tqdm
 from os.path import join
 from os import makedirs
 import pynvml as nv
+from cv2 import getGaussianKernel
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
-           'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image']
+           'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel']
 
 
 class Dict(dict):
@@ -369,6 +370,22 @@ def count_submodules(module: nn.Module, class_or_tuple) -> int:
         Count.
     """
     return np.sum([1 for m in module.modules() if isinstance(m, class_or_tuple)])
+
+
+def ensure_num_tuple(v, num=2, msg=''):
+    if isinstance(v, (int, float)):
+        v = (v,) * num
+    elif isinstance(v, (list, tuple)):
+        pass
+    else:
+        raise ValueError(msg)
+    return v
+
+
+def gaussian_kernel(kernel_size, sigma=-1):
+    kernel_size = ensure_num_tuple(kernel_size, msg='kernel_size must be int, tuple or list.')
+    sigma = ensure_num_tuple(sigma, msg='sigma must be int, tuple or list.')
+    return getGaussianKernel(kernel_size[0], sigma[0]) @ getGaussianKernel(kernel_size[1], sigma[1]).T
 
 
 class Bytes(int):

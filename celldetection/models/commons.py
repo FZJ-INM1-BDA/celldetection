@@ -1,8 +1,20 @@
 import torch.nn as nn
-from torch import Tensor, tanh
+from torch import Tensor, tanh, no_grad, as_tensor
+from ..util.util import get_device, num_params, gaussian_kernel
+
+__all__ = ['TwoConvBnRelu', 'ScaledTanh', 'GaussianBlur']
 
 
-__all__ = ['TwoConvBnRelu', 'ScaledTanh']
+class GaussianBlur(nn.Conv2d):
+    def __init__(self, in_channels, kernel_size=3, sigma=-1, padding='same', padding_mode='reflect',
+                 requires_grad=False, **kwargs):
+        self._kernel = gaussian_kernel(kernel_size, sigma)
+        super().__init__(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, padding=padding,
+                         padding_mode=padding_mode, bias=False, requires_grad=requires_grad, **kwargs)
+
+    def reset_parameters(self):
+        with no_grad():
+            as_tensor(self._kernel, dtype=self.weight.dtype)
 
 
 class TwoConvBnRelu(nn.Sequential):
