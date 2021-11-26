@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from collections import OrderedDict
 from skimage import img_as_ubyte
+from ..util.util import get_device
 
 
 def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dims=2, has_batch=False):
@@ -68,6 +69,37 @@ def to_tensor(inputs: np.ndarray, spatial_dims=2, transpose=False, has_batch=Fal
     return torch.as_tensor(
         channels_last2channels_first(inputs, spatial_dims=bool(transpose) * spatial_dims, has_batch=has_batch),
         device=device, dtype=dtype)
+
+
+def ensure_tensor(x, device=None, dtype=torch.float32):
+    """Ensure tensor.
+
+    Mapping ndarrays to Tensor.
+    Possible shape mappings:
+    - (h, w) -> (1, 1, h, w)
+    - (h, w, c) -> (1, c, h, w)
+    - (b, c, h, w) -> (b, c, h, w)
+
+    Args:
+        x: Inputs.
+        device: Either Device or a Module or Tensor to retrieve the device from.
+        dtype: Data type.
+
+    Returns:
+        Tensor
+    """
+    if isinstance(x, np.ndarray):
+        if x.ndim == 2:
+            x = x[:, :, None]
+        b = to_tensor(x, device=None if device is None else get_device(device),
+                      transpose=x.ndim == 3, has_batch=x.ndim == 4)
+        if b.ndim == 3:
+            b = b[None]
+        if b.dtype != dtype:
+            b = b.to(dtype=dtype)
+    else:
+        b = x
+    return b
 
 
 def padding_stack(*images, axis=0) -> np.ndarray:
@@ -176,3 +208,22 @@ def rle2mask(code, shape, transpose=True, min_index=1, constant=1) -> np.ndarray
     if transpose:
         image = image.T
     return image
+
+
+def rgb_to_scalar(inputs: np.ndarray, dtype=np.int32):
+    """RGB to scalar.
+
+    Convert RGB data to scalar, while maintaining color uniqueness.
+
+    Args:
+        inputs: Input array. Shape ([d1, d2, ..., dn,] 3)
+        dtype: Data type
+
+    Returns:
+        Output array. Shape ([d1, d2, ..., dn])
+    """
+    red, green, blue = inputs[..., 0], inputs[..., 1], inputs[..., 2]
+    rgb = red.astype(dtype)
+    rgb = (rgb << 8) + green
+    rgb = (rgb << 8) + blue
+    return rgb
