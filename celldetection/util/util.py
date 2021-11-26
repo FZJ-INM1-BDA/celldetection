@@ -288,6 +288,10 @@ def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, 
         info = [] if desc is None else [desc]
         if gpu_st is not None:
             info.append(str(gpu_st))
+        losses = outputs.get('losses')
+        if losses is not None and isinstance(losses, dict):
+            info.append('losses(' + ', '.join(
+                [(f'{k}: %g' % np.round(asnumpy(v), 3)) for k, v in losses.items() if v is not None]) + ')')
         info.append('loss %g' % np.round(asnumpy(loss), 3))
         tq.desc = ' - '.join(info)
         if scaler is None:
