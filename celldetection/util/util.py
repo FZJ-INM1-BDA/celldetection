@@ -334,8 +334,12 @@ def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, **kwargs):
                 setattr(mod, k, v)
 
 
-def get_device(module: Union[nn.Module, Tensor]):
-    if hasattr(module, 'device'):
+def get_device(module: Union[nn.Module, Tensor, torch.device]):
+    if isinstance(module, torch.device):
+        return module
+    elif isinstance(module, str):
+        return module
+    elif hasattr(module, 'device'):
         return module.device
     p: nn.parameter.Parameter = next(module.parameters())
     return p.device
