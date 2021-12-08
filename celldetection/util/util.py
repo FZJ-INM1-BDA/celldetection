@@ -16,7 +16,8 @@ from cv2 import getGaussianKernel
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
-           'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel']
+           'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
+           'replace_module_']
 
 
 class Dict(dict):
@@ -332,6 +333,35 @@ def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, **kwargs):
                 if must_exist:
                     getattr(mod, k)
                 setattr(mod, k, v)
+
+
+def replace_module_(module: nn.Module, class_or_tuple, substitute: nn.Module, recursive=True, **kwargs):
+    """Replace module.
+
+    Replace all occurrences of `class_or_tuple` in `module` with `substitute`.
+
+    Examples:
+        ```
+        # Replace all ReLU activations with LeakyReLU
+        replace_module_(network, nn.ReLU, nn.LeakyReLU)
+        ```
+
+    Args:
+        module: Module.
+        class_or_tuple: Class or tuple of classes that are to be replaced.
+        substitute: Substitute class or object.
+        recursive: Whether to replace modules recursively.
+        **kwargs: Keyword arguments passed to substitute constructor if it is a class.
+
+    """
+    for k, mod in module._modules.items():
+        if isinstance(mod, class_or_tuple):
+            if type(substitute) == type:
+                module._modules[k] = substitute(**kwargs)
+            else:
+                module._modules[k] = substitute
+        elif isinstance(mod, nn.Module) and recursive:
+            replace_module_(mod, substitute=substitute, class_or_tuple=class_or_tuple, recursive=recursive, **kwargs)
 
 
 def get_device(module: Union[nn.Module, Tensor, torch.device]):
