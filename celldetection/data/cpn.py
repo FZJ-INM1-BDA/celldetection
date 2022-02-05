@@ -43,17 +43,16 @@ def efd(contour, order=10, epsilon=1e-6):
     sampling = t[..., -1:]  # shape: (..., 1)
     T_ = t[..., -1]  # shape: (...,)
     phi = (2 * np.pi * t) / sampling  # shape: (..., p + 1)
-    orders = np.arange(1, order + 1, dtype=phi.dtype)  # shape: (p,)
+    orders = np.arange(1, order + 1, dtype=phi.dtype)  # shape: (order,)
     constants = sampling / (2. * np.square(orders) * np.square(np.pi))
     phi = np.expand_dims(phi, -2) * np.expand_dims(orders, -1)
     d_cos_phi = np.cos(phi[..., 1:]) - np.cos(phi[..., :-1])
     d_sin_phi = np.sin(phi[..., 1:]) - np.sin(phi[..., :-1])
-    cos_phi = np.expand_dims(dxy[..., 0] / dt, axis=-2) * d_cos_phi
 
     dxy0_dt = np.expand_dims(dxy[..., 0] / dt, axis=-2)
     dxy1_dt = np.expand_dims(dxy[..., 1] / dt, axis=-2)
     coefficients = np.stack([
-        constants * np.sum(cos_phi, axis=-1),
+        constants * np.sum(dxy0_dt * d_cos_phi, axis=-1),
         constants * np.sum(dxy0_dt * d_sin_phi, axis=-1),
         constants * np.sum(dxy1_dt * d_cos_phi, axis=-1),
         constants * np.sum(dxy1_dt * d_sin_phi, axis=-1),
