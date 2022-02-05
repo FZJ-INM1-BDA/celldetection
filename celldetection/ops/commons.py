@@ -1,8 +1,9 @@
 import torch
+from torch import Tensor
 import torch.nn.functional as F
 from typing import List
 
-__all__ = ['downsample_labels']
+__all__ = ['downsample_labels', 'padded_stack2d']
 
 
 def downsample_labels(inputs, size: List[int]):
@@ -33,3 +34,21 @@ def downsample_labels(inputs, size: List[int]):
     if r.shape[-2:] != (sizeh, sizew):
         r = F.interpolate(r, size, mode='nearest')
     return r
+
+
+def padded_stack2d(*images, dim=0) -> Tensor:
+    """Padding stack.
+
+    Stacks 2d images along given axis.
+    Spatial dimensions are padded according to largest height/width.
+
+    Args:
+        *images: Tensor[..., h, w]
+        dim: Stack dimension.
+
+    Returns:
+        Tensor
+    """
+    ts = tuple(max((i.shape[j] for i in images)) for j in range(-2, 0))
+    images = [F.pad(i, [0, ts[1] - i.shape[-1], 0, ts[0] - i.shape[-2]]) for i in images]
+    return torch.stack(images, dim=dim)
