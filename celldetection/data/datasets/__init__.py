@@ -1,1 +1,2 @@
-from .bbbc039 import BBBC039Val, BBBC039Test, BBBC039Train
+from .bbbc039 import *
+from .bbbc041 import *
