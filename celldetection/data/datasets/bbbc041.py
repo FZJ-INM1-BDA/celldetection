@@ -1,5 +1,5 @@
 from torchvision.datasets import utils
-from os.path import join, basename
+from os.path import join, basename, isfile
 from os import makedirs, listdir
 from imageio import imread
 import numpy as np
@@ -26,14 +26,14 @@ class _BBBC041:
     def __init__(self, directory, download, mode: str):
         assert mode in ('train', 'test')  # , 'val'
 
-        if download:
-            download_bbbc041(directory)
-
         json_file = join(directory, {
             'train': 'training.json',
             # 'val': 'validation.json',
             'test': 'test.json'
         }[mode])
+
+        if download and not isfile(json_file):
+            download_bbbc041(directory)
 
         with open(json_file, 'r') as f:
             meta = json.load(f)
