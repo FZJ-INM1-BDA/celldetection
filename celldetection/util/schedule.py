@@ -4,19 +4,35 @@ from itertools import product
 from collections import OrderedDict
 from torch.nn import Module
 from torch import optim
+from typing import Callable, Union
+
 
 __all__ = ['Config', 'conf2optimizer', 'conf2scheduler', 'conf2augmentation', 'conf2tweaks_']
 
 
+def conf2call(settings: Union[dict, str], origin, **kwargs):
+    assert len(settings) == 1 or isinstance(settings, str)
+    if not isinstance(origin, (tuple, list)):
+        origin = origin,
+    if isinstance(settings, str):
+        key = settings
+        kw = {}
+    else:
+        key = next(iter(settings.keys()))
+        kw = next(iter(settings.values()))
+    try:
+        fn = next(iter(getattr(o, key) for o in origin if hasattr(o, key)))
+    except StopIteration:
+        raise ValueError(f'No such function: {key} in {origin}')
+    return fn(**kw, **kwargs)
+
+
 def conf2optimizer(settings: dict, params):
-    assert len(settings) == 1
-    return getattr(optim, next(iter(settings.keys())))(params=params, **next(iter(settings.values())))
+    return conf2call(settings, optim, params=params)
 
 
 def conf2scheduler(settings: dict, optimizer):
-    assert len(settings) == 1
-    return getattr(optim.lr_scheduler, next(iter(settings.keys())))(optimizer=optimizer,
-                                                                    **next(iter(settings.values())))
+    return conf2call(settings, optim.lr_scheduler, optimizer=optimizer)
 
 
 def conf2augmentation(settings: dict):
