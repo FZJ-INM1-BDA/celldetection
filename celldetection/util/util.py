@@ -74,7 +74,7 @@ def lookup_nn(item: str, *a, src=nn, call=True, inplace=True, **kw):
     if call:
         kwargs = {'inplace': inplace} if 'inplace' in inspect.getfullargspec(v).args else {}
         kwargs.update(kw)
-        v = v(*a, **kw)
+        v = v(*a, **kwargs)
     return v
 
 
