@@ -6,7 +6,7 @@ from torchvision.models._utils import IntermediateLayerGetter
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork
 from collections import OrderedDict
 from typing import List, Dict
-from .commons import TwoConvBnRelu
+from .commons import TwoConvNormRelu
 from .resnet import *
 from .mobilenetv3 import *
 

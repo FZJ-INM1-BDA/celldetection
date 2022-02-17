@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch import Tensor, tanh, no_grad, as_tensor
-from ..util.util import gaussian_kernel
+from ..util.util import gaussian_kernel, lookup_nn
 
-__all__ = ['TwoConvBnRelu', 'ScaledTanh', 'GaussianBlur', 'ReplayCache']
+__all__ = ['TwoConvNormRelu', 'ScaledTanh', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm']
 
 
 class GaussianBlur(nn.Conv2d):
@@ -19,17 +19,37 @@ class GaussianBlur(nn.Conv2d):
             as_tensor(self._kernel, dtype=self.weight.dtype)
 
 
-class TwoConvBnRelu(nn.Sequential):
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1, mid_channels=None, **kwargs):
+class ConvNorm(nn.Sequential):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1, norm_layer=nn.BatchNorm2d,
+                 **kwargs):
+        super().__init__(
+            nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride, **kwargs),
+            norm_layer(out_channels),
+        )
+
+
+class ConvNormRelu(nn.Sequential):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1, norm_layer=nn.BatchNorm2d,
+                 **kwargs):
+        super().__init__(
+            nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride, **kwargs),
+            norm_layer(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+
+class TwoConvNormRelu(nn.Sequential):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1, mid_channels=None,
+                 norm_layer=nn.BatchNorm2d, **kwargs):
         if mid_channels is None:
             mid_channels = out_channels
         super().__init__(
             nn.Conv2d(in_channels, mid_channels, kernel_size=kernel_size, padding=padding, stride=stride, **kwargs),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(),
+            norm_layer(mid_channels),
+            nn.ReLU(inplace=True),
             nn.Conv2d(mid_channels, out_channels, kernel_size=kernel_size, padding=padding, **kwargs),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU()
+            norm_layer(out_channels),
+            nn.ReLU(inplace=True)
         )
 
 
