@@ -34,7 +34,7 @@ class UNetEncoder(nn.Sequential):
             in_c = base_channels * int(factor ** (i - 1)) * int(i > 0) + int(i <= 0) * in_channels
             out_c = base_channels * (factor ** i)
             self.out_channels.append(out_c)
-            block = TwoConvBnRelu(in_c, out_c, stride=int((not pool and i > 0) + 1))
+            block = TwoConvNormRelu(in_c, out_c, stride=int((not pool and i > 0) + 1))
             if i > 0 and pool:
                 block = nn.Sequential(nn.MaxPool2d(2, stride=2), block)
             layers.append(block)
@@ -137,7 +137,7 @@ class BackboneAsUNet(nn.Module):
 
 
 class UNet(BackboneAsUNet):
-    def __init__(self, backbone, out_channels: int, return_layers: dict = None, block: nn.Module = TwoConvBnRelu):
+    def __init__(self, backbone, out_channels: int, return_layers: dict = None, block: nn.Module = TwoConvNormRelu):
         """
         Examples:
             ```python
@@ -163,7 +163,7 @@ class UNet(BackboneAsUNet):
             return_layers: Dictionary like `{backbone_layer_name: out_name}`.
                 Note that this influences how outputs are computed, as the input for the upsampling
                 is gathered by `IntermediateLayerGetter` based on given dict keys.
-            block: Module class. Default is `block=TwoConvBnRelu`. Must be callable: block(in_channels, out_channels).
+            block: Module class. Default is `block=TwoConvNormRelu`. Must be callable: block(in_channels, out_channels).
         """
         names = [name for name, _ in backbone.named_children()]  # assuming ordered
         if return_layers is None:
