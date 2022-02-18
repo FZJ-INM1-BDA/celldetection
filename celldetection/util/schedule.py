@@ -82,3 +82,9 @@ class Config(Dict):
     def __repr__(self):
         self._modules = self.to_dict()
         return Module.__repr__(self)
+
+    def __getstate__(self):
+        return self.to_dict()
+
+    def __setstate__(self, d: dict):
+        self.update(d)
