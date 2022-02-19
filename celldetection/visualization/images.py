@@ -4,6 +4,8 @@ import matplotlib.patheffects as path_effects
 import numpy as np
 import seaborn as sbn
 
+__all__ = ['imshow', 'plot_mask', 'plot_box', 'plot_text', 'quiver_plot', 'show_detection', 'save_fig']
+
 
 def imshow(image, figsize=None, **kw):
     if figsize is not None:
