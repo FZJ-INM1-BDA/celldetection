@@ -6172,3 +6172,7 @@ h1, h2, .sig-name, .sig-name span {
 .wy-side-nav-search input[type="text"]:focus {
     background-color: #fff;
 }
+
+.rst-versions .rst-current-version {
+    background-color: var(--left-bar-bg);
+}
