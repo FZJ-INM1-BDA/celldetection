@@ -14,10 +14,11 @@ class FPN(BackboneWithFPN):
         """
 
         Examples:
-            >>> from juvision.models import ResNet18, FPN
-            >>> m = FPN(ResNet18(in_channels=1))
-            >>> for k, v in m(torch.rand(1, 1, 128, 128)).items():
-            >>>     print(k, "\t", v.shape)
+            >>> from celldetection.models import ResNet18, FPN
+            ... import torch
+            >>> model = FPN(ResNet18(in_channels=1))
+            >>> for k, v in model(torch.rand(1, 1, 128, 128)).items():
+            ...     print(k, "\t", v.shape)
             0 	     torch.Size([1, 256, 32, 32])
             1 	     torch.Size([1, 256, 16, 16])
             2 	     torch.Size([1, 256, 8, 8])
@@ -98,7 +99,6 @@ class MobileNetV3SmallFPN(FPN):
     """Feature Pyramid Network with MobileNetV3Small.
 
     Examples:
-        ```
         >>> import torch
         >>> from celldetection import models
         >>> model = models.MobileNetV3SmallFPN(in_channels=3)
@@ -111,7 +111,6 @@ class MobileNetV3SmallFPN(FPN):
         3 torch.Size([1, 256, 16, 16])
         4 torch.Size([1, 256, 8, 8])
         pool torch.Size([1, 256, 4, 4])
-        ```
     """
 
     def __init__(self, in_channels, fpn_channels=256, **kwargs):
@@ -122,7 +121,6 @@ class MobileNetV3LargeFPN(FPN):
     """Feature Pyramid Network with MobileNetV3Large.
 
     Examples:
-        ```
         >>> import torch
         >>> from celldetection import models
         >>> model = models.MobileNetV3LargeFPN(in_channels=3)
@@ -135,7 +133,6 @@ class MobileNetV3LargeFPN(FPN):
         3 torch.Size([1, 256, 16, 16])
         4 torch.Size([1, 256, 8, 8])
         pool torch.Size([1, 256, 4, 4])
-        ```
     """
 
     def __init__(self, in_channels, fpn_channels=256, **kwargs):

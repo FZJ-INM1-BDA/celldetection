@@ -214,7 +214,6 @@ class LabelMatcherList(list):
     Simple interface to get averaged results from a list of `LabelMatcher` objects.
 
     Examples:
-        ```
         >>> lml = LabelMatcherList([
         ...     LabelMatcher(pred_labels_0, target_labels0),
         ...     LabelMatcher(pred_labels_1, target_labels1),
@@ -222,15 +221,12 @@ class LabelMatcherList(list):
         >>> lml.iou_thresh = 0.5  # set iou_thresh for all LabelMatcher objects
         >>> print('Average F1 score for iou threshold 0.5:', lml.avg_f1)
         Average F1 score for iou threshold 0.5: 0.92
-        ```
 
-        Testing different IOU thresholds:
-        ```
+        >>> # Testing different IOU thresholds:
         >>> for lml.iou_thresh in (.5, .75):
         ...     print('thresh:', lml.iou_thresh, '\t f1:', lml.avg_f1)
         thresh: 0.5 	 f1: 0.92
         thresh: 0.75 	 f1: 0.91
-        ```
 
     """
 

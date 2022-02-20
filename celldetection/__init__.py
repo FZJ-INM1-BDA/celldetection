@@ -1,3 +1,6 @@
+"""
+Primary symbols include classes and functions for visualization, configuration, timing and generally useful utilities.
+"""
 from . import models
 from . import ops
 from . import util

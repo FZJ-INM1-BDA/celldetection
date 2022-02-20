@@ -26,14 +26,29 @@ class Dict(dict):
     __setattr__ = dict.__setitem__
 
     def __init__(self, **kwargs):
+        """Dictionary.
+
+        Just a ``dict`` that treats values like attributes.
+
+        Examples:
+            >>> import celldetection as cd
+            >>> d = cd.Dict(my_value=42)
+            >>> d.my_value
+            42
+            >>> d.my_value += 1
+            >>> d.my_value
+            43
+
+        Args:
+            **kwargs:
+        """
         super().__init__(kwargs)
 
 
-def lookup_nn(item: str, *a, src=nn, call=True, inplace=True, **kw):
+def lookup_nn(item: str, *a, src=None, call=True, inplace=True, **kw):
     """
 
     Examples:
-        ```
         >>> lookup_nn('batchnorm2d', 32)
             BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
         >>> lookup_nn(torch.nn.BatchNorm2d, 32)
@@ -48,7 +63,6 @@ def lookup_nn(item: str, *a, src=nn, call=True, inplace=True, **kw):
             ReLU(inplace=True)
         >>> lookup_nn('relu', inplace=False)
             ReLU()
-        ```
 
     Args:
         item: Lookup item. None is equivalent to `identity`.
@@ -57,11 +71,12 @@ def lookup_nn(item: str, *a, src=nn, call=True, inplace=True, **kw):
         call: Whether to call item.
         inplace: Default setting for items that take an `inplace` argument when called.
             As default is True, `lookup_nn('relu')` returns a ReLu instance with `inplace=True`.
-        **kw:
+        **kw: Keyword arguments passed to item when it is called.
 
     Returns:
         Looked up item.
     """
+    src = src or nn
     if item is None:
         v = nn.Identity
     elif isinstance(item, str):
@@ -91,6 +106,22 @@ def add_to_loss_dict(d: dict, key: str, loss: torch.Tensor, weight=None):
 
 
 def to_device(batch: Union[list, tuple, dict, Tensor], device):
+    """To device.
+
+    Move Tensors to device.
+    Input can be Tensor, tuple of Tensors, list of Tensors or a dictionary of Tensors.
+
+    Notes:
+        - Works recursively.
+        - Non-Tensor items are not altered.
+
+    Args:
+        batch: Input.
+        device: Device.
+
+    Returns:
+        Input with Tensors moved to device.
+    """
     if isinstance(batch, Tensor):
         batch = batch.to(device)
     elif isinstance(batch, dict):
@@ -101,13 +132,27 @@ def to_device(batch: Union[list, tuple, dict, Tensor], device):
 
 
 def asnumpy(v):
+    """As numpy.
+
+    Converts all Tensors to numpy arrays.
+
+    Notes:
+        - Works recursively.
+        - The following input items are not altered: Numpy array, int, float, bool, str
+
+    Args:
+        v: Tensor or list/tuple/dict of Tensors.
+
+    Returns:
+        Input with Tensors converted to numpy arrays.
+    """
     if v is None:
         return v
     elif isinstance(v, torch.Tensor):
         if str(v.device) != 'cpu':
             v = v.cpu()
         return v.data.numpy()
-    elif isinstance(v, (np.ndarray, int, float, bool, np.float, np.int, np.bool)):
+    elif isinstance(v, (np.ndarray, int, float, bool, np.float, np.int, np.bool, str)):
         return v
     elif isinstance(v, (tuple, list)):
         return [asnumpy(val) for val in v]
@@ -121,9 +166,9 @@ def asnumpy(v):
 
 
 def fetch_model(name, map_location=None, **kwargs):
-    """Fetch model.
+    """Fetch model from URL.
 
-    Loads model or state dict from url.
+    Loads model or state dict from URL.
 
     Args:
         name: Model name hosted on `celldetection.org` or url. Urls must start with 'http'.
@@ -141,19 +186,17 @@ def random_code_name(chars=4) -> str:
     Generates random code names that are somewhat pronounceable and memorable.
 
     Examples:
-        ```
-        >>> from celldetection import util
-        >>> util.random_code_name()
+        >>> import celldetection as cd
+        >>> cd.random_code_name()
         kolo
-        >>> util.random_code_name(6)
+        >>> cd.random_code_name(6)
         lotexo
-        ```
 
     Args:
         chars: Number of characters.
 
     Returns:
-        String
+        String.
     """
     a, b = [i for i in 'aeiou'], [i for i in 'tskyrhzjgqmxlvnfcpwbd']
     return ''.join([np.random.choice(b if j % 2 == 0 else a) for j in range(chars)])
@@ -201,6 +244,8 @@ def dict_hash(dictionary: TDict[str, Any]) -> str:
 def fetch_image(url, numpy=True):
     """Fetch image from URL.
 
+    Download an image from URL and convert it to a numpy array or PIL Image.
+
     Args:
         url: URL
         numpy: Whether to convert PIL Image to numpy array.
@@ -214,7 +259,18 @@ def fetch_image(url, numpy=True):
     return np.asarray(img) if numpy else img
 
 
-def load_image(name, method='imageio'):
+def load_image(name, method='imageio') -> np.ndarray:
+    """Load image.
+
+    Load image from URL or from filename via ``imageio`` or ``pytiff``.
+
+    Args:
+        name: URL (must start with ``http``) or filename.
+        method: Method to use for filenames.
+
+    Returns:
+        Image.
+    """
     if name.startswith('http'):
         img = fetch_image(name)
     elif method == 'imageio':
@@ -231,6 +287,9 @@ def load_image(name, method='imageio'):
 
 def random_seed(seed, backends=False, deterministic_torch=True):
     """Set random seed.
+
+    Set random seed to ``random``, ``np.random``, ``torch.backends.cudnn`` and ``torch.manual_seed``.
+    Also advise torch to use deterministic algorithms.
 
     References:
         https://pytorch.org/docs/stable/notes/randomness.html
@@ -312,11 +371,9 @@ def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, **kwargs):
     Sets attributes for all modules that are instances of given `class_or_tuple`.
 
     Examples:
-        ```
         >>> import celldetection as cd, torch.nn as nn
         >>> model = cd.models.ResNet18(in_channels=3)
-        >>> cd.util.tweak_module_(model, nn.BatchNorm2d, momentum=0.05)  # sets momentum to 0.05
-        ```
+        >>> cd.tweak_module_(model, nn.BatchNorm2d, momentum=0.05)  # sets momentum to 0.05
 
     Notes:
         This is an in-place operation.
@@ -341,10 +398,8 @@ def replace_module_(module: nn.Module, class_or_tuple, substitute: nn.Module, re
     Replace all occurrences of `class_or_tuple` in `module` with `substitute`.
 
     Examples:
-        ```
-        # Replace all ReLU activations with LeakyReLU
-        replace_module_(network, nn.ReLU, nn.LeakyReLU)
-        ```
+        >>> # Replace all ReLU activations with LeakyReLU
+        ... replace_module_(network, nn.ReLU, nn.LeakyReLU)
 
     Args:
         module: Module.
@@ -365,6 +420,16 @@ def replace_module_(module: nn.Module, class_or_tuple, substitute: nn.Module, re
 
 
 def get_device(module: Union[nn.Module, Tensor, torch.device]):
+    """Get device.
+
+    Get device from Module.
+
+    Args:
+        module: Module. If ``module`` is a string or ``torch.device`` already, it is returned as is.
+
+    Returns:
+        Device.
+    """
     if isinstance(module, torch.device):
         return module
     elif isinstance(module, str):
@@ -380,32 +445,66 @@ def _params(module: nn.Module, trainable=None, recurse=True) -> Iterator[nn.Para
 
 
 def trainable_params(module: nn.Module, recurse=True) -> Iterator[nn.Parameter]:
+    """Trainable parameters.
+
+    Retrieve all trainable parameters.
+
+    Args:
+        module: Module.
+        recurse: Whether to also include parameters of all submodules.
+
+    Returns:
+        Module parameters.
+    """
     return _params(module, True, recurse=recurse)
 
 
 def frozen_params(module: nn.Module, recurse=True) -> Iterator[nn.Parameter]:
+    """Frozen parameters.
+
+    Retrieve all frozen parameters.
+
+    Args:
+        module: Module.
+        recurse: Whether to also include parameters of all submodules.
+
+    Returns:
+        Module parameters.
+    """
     return _params(module, False, recurse=recurse)
 
 
 def num_params(module: nn.Module, trainable=None, recurse=True) -> int:
+    """Number of parameters.
+
+    Count the number of parameters.
+
+    Args:
+        module: Module
+        trainable: Optionally filter for trainable or frozen parameters.
+        recurse: Whether to also include parameters of all submodules.
+
+    Returns:
+        Number of parameters.
+    """
     return sum(p.numel() for p in _params(module, trainable, recurse=recurse))
 
 
 def count_submodules(module: nn.Module, class_or_tuple) -> int:
     """Count submodules.
 
+    Count the number of submodules of the specified type(-es).
+
     Examples:
-        ```
         >>> count_submodules(cd.models.U22(1, 0), nn.Conv2d)
         22
-        ```
 
     Args:
-        module: PyTorch `Module`.
+        module: Module.
         class_or_tuple: All instances of given `class_or_tuple` are to be counted.
 
     Returns:
-        Count.
+        Number of submodules.
     """
     return np.sum([1 for m in module.modules() if isinstance(m, class_or_tuple)])
 
@@ -420,13 +519,30 @@ def ensure_num_tuple(v, num=2, msg=''):
     return v
 
 
-def gaussian_kernel(kernel_size, sigma=-1):
+def gaussian_kernel(kernel_size, sigma=-1) -> np.ndarray:
+    """Get Gaussian kernel.
+
+    Constructs and returns a Gaussian kernel.
+
+    Args:
+        kernel_size: Kernel size as int or tuple. It should be odd and positive.
+        sigma: Gaussian standard deviation as float or tuple. If it is non-positive, it is computed from kernel_size as
+            ``sigma = 0.3*((kernel_size-1)*0.5 - 1) + 0.8``.
+
+    Returns:
+        Gaussian Kernel.
+    """
     kernel_size = ensure_num_tuple(kernel_size, msg='kernel_size must be int, tuple or list.')
     sigma = ensure_num_tuple(sigma, msg='sigma must be int, tuple or list.')
     return getGaussianKernel(kernel_size[0], sigma[0]) @ getGaussianKernel(kernel_size[1], sigma[1]).T
 
 
 class Bytes(int):
+    """Bytes.
+
+    Printable integer that represents Bytes.
+
+    """
     UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB', 'BB']
 
     def __str__(self):
@@ -442,6 +558,11 @@ class Bytes(int):
 
 
 class Percent(float):
+    """Percent.
+
+    Printable float that represents percentage.
+
+    """
     def __str__(self):
         return '%g%%' % np.round(self, 2)
 
@@ -450,6 +571,19 @@ class Percent(float):
 
 class GpuStats:
     def __init__(self, delimiter=', '):
+        """GPU Statistics.
+
+        Simple interface to print live GPU statistics from ``pynvml``.
+
+        Examples:
+            >>> import celldetection as cd
+            >>> stat = cd.GpuStats()  # initialize once
+            >>> print(stat)  # print current statistics
+            gpu0(free: 22.55GB, used: 21.94GB, util: 93%), gpu1(free: 1.03GB, used: 43.46GB, util: 98%)
+
+        Args:
+            delimiter: Delimiter used for printing.
+        """
         try:
             nv.nvmlInit()
             self.num = nv.nvmlDeviceGetCount()

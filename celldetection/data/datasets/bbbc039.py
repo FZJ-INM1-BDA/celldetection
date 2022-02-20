@@ -26,6 +26,17 @@ def load(images_directory, masks_directory, names, **label_kwargs):
 
 
 def download_bbbc039(directory):
+    """Download BBBC039.
+
+    Download and extract the BBBC039 dataset to given directory.
+
+    References:
+        https://bbbc.broadinstitute.org/BBBC039
+
+    Args:
+        directory: Root directory.
+
+    """
     makedirs(directory, exist_ok=True)
     for url in [
         'https://data.broadinstitute.org/bbbc/BBBC039/images.zip',
@@ -68,14 +79,47 @@ class _BBBC039:
 
 class BBBC039Train(_BBBC039):
     def __init__(self, directory, download=False):
+        """BBBC039 Train.
+
+        Training split of the BBBC039 dataset.
+
+        References:
+            https://bbbc.broadinstitute.org/BBBC039
+
+        Args:
+            directory: Root directory.
+            download: Whether to download the dataset.
+        """
         super().__init__(directory, download=download, mode='train')
 
 
 class BBBC039Val(_BBBC039):
     def __init__(self, directory, download=False):
+        """BBBC039 Validation.
+
+        Validation split of the BBBC039 dataset.
+
+        References:
+            https://bbbc.broadinstitute.org/BBBC039
+
+        Args:
+            directory: Root directory.
+            download: Whether to download the dataset.
+        """
         super().__init__(directory, download=download, mode='val')
 
 
 class BBBC039Test(_BBBC039):
     def __init__(self, directory, download=False):
+        """BBBC039 Test.
+
+        Test split of the BBBC039 dataset.
+
+        References:
+            https://bbbc.broadinstitute.org/BBBC039
+
+        Args:
+            directory: Root directory.
+            download: Whether to download the dataset.
+        """
         super().__init__(directory, download=download, mode='test')

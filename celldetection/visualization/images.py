@@ -8,6 +8,19 @@ __all__ = ['imshow', 'plot_mask', 'plot_box', 'plot_text', 'quiver_plot', 'show_
 
 
 def imshow(image, figsize=None, **kw):
+    """Imshow.
+
+    PyPlot's imshow function with benefits.
+
+    Args:
+        image: Image as Array[h, w], Array[h, w, c], Array[1, h, w] or Array[1, h, w, c]. Images without channels or
+            just one channel are plotted as grayscale images by default.
+        figsize: Figsize. If specified a new ``Figure(figsize=figsize)`` with is created.
+        **kw: Imshow keyword arguments.
+
+    Returns:
+
+    """
     if figsize is not None:
         plt.figure(None, figsize)
     if image.ndim == 3 and 1 in image.shape:
@@ -15,6 +28,8 @@ def imshow(image, figsize=None, **kw):
             image = np.squeeze(image, -1)
         elif image.shape[0] == 1:
             image = np.squeeze(image, 0)
+    if image.ndim == 2 and 'cmap' not in kw.keys():
+        kw['cmap'] = 'gray'
     plt.imshow(image, **kw)
     plt.grid(0)
 
@@ -90,6 +105,15 @@ def show_detection(image=None, contours=None, coordinates=None, boxes=None, scor
 
 
 def save_fig(filename, close=True):
+    """Save Figure.
+
+    Save current Figure to disk.
+
+    Args:
+        filename: Filename, e.g. ``image.png``.
+        close: Whether to close all unhandled Figures. Do not close them if you intend to call ``plt.show()``.
+
+    """
     plt.savefig(filename, bbox_inches='tight')
     if close:
         plt.close('all')
@@ -99,6 +123,7 @@ def quiver_plot(vector_field, image=None, cmap='gray', figsize=None, qcmap='twil
                 alpha=.7):
     """Quiver plot.
 
+    Plots a 2d vector field.
     Can be used to visualize local refinement tensor.
 
     Args:

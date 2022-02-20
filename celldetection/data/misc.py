@@ -210,7 +210,7 @@ def rle2mask(code, shape, transpose=True, min_index=1, constant=1) -> np.ndarray
     return image
 
 
-def rgb_to_scalar(inputs: np.ndarray, dtype=np.int32):
+def rgb_to_scalar(inputs: np.ndarray, dtype='int32'):
     """RGB to scalar.
 
     Convert RGB data to scalar, while maintaining color uniqueness.

@@ -6,6 +6,17 @@ __all__ = ['reduce_loss', 'log_margin_loss', 'margin_loss']
 
 
 def reduce_loss(x: Tensor, reduction: str):
+    """Reduce loss.
+
+    Reduces Tensor according to ``reduction``.
+
+    Args:
+        x: Input.
+        reduction: Reduction method. Must be a symbol of ``torch``.
+
+    Returns:
+        Reduced Tensor.
+    """
     if reduction == 'none':
         return x
     fn = getattr(torch, reduction, None)

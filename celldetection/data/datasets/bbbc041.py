@@ -12,6 +12,18 @@ __all__ = ['download_bbbc041', 'BBBC041Train', 'BBBC041Test']
 
 
 def download_bbbc041(directory, url='https://data.broadinstitute.org/bbbc/BBBC041/malaria.zip'):
+    """Download BBBC041.
+
+    Download and extract the BBBC041 dataset to given directory.
+
+    References:
+        https://bbbc.broadinstitute.org/BBBC041
+
+    Args:
+        directory: Root directory.
+        url: Download URL (this dataset is distributed in a single zip file).
+
+    """
     makedirs(directory, exist_ok=True)
     utils.download_and_extract_archive(url, directory)
     malaria_dir = join(directory, 'malaria')

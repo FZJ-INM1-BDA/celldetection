@@ -23,6 +23,7 @@ def assert_mpi(func):
                 f'Check out: https://mpi4py.readthedocs.io/en/stable/install.html\n\n{str(_ERR)}')
         return func(*a, **k)
 
+    func_wrapper.__doc__ = func.__doc__
     return func_wrapper
 
 
@@ -51,6 +52,19 @@ def get_comm(comm=None, return_ranks=False):
 
 @assert_mpi
 def get_local_comm(comm, return_ranks=False, host=None, node_rank=None):
+    """Get local comm.
+
+    Split ``comm`` by host. The returned comm is an MPI Comm object that connects ranks from the same host.
+
+    Args:
+        comm: MPI comm.
+        return_ranks: Whether to return local rank and the number of local ranks as well.
+        host: Host name. Will be determined if not provided.
+        node_rank: Node rank. Will be determined if not provided.
+
+    Returns:
+        Local MPI Comm.
+    """
     rank = comm.Get_rank()
     if None in (host, node_rank):
         host, _, node_rank, _ = get_hosts(comm, return_ranks=True)
@@ -64,13 +78,38 @@ def get_local_comm(comm, return_ranks=False, host=None, node_rank=None):
 
 
 @assert_mpi
-def all_filter(comm, condition):
+def all_filter(comm, condition: bool):
+    """All filter.
+
+    Filter ranks by condition.
+
+    Args:
+        comm: MPI Comm.
+        condition: Boolean condition.
+
+    Returns:
+        Tuple with sets of ranks: (ranks that met the condition, ranks that did not meet the condition)
+    """
     keep = set(k for k, v in comm.allgather((comm.Get_rank(), condition)) if v)
     return keep, set(range(comm.Get_size())) - keep
 
 
 @assert_mpi
 def recv(comm, source=ANY_SOURCE, tag=ANY_TAG, status=..., **kwargs):
+    """Receive.
+
+    Receive item from ``source`` rank.
+
+    Args:
+        comm: MPI Comm
+        source: Source rank. Default: any
+        tag: Tag. Default: any
+        status: Optional ``MPI.Status`` object.
+        **kwargs: Keyword arguments for comm.recv.
+
+    Returns:
+        Received item and ``MPI.Status`` object.
+    """
     if status is ...:
         status = MPI.Status()
     return comm.recv(source=source, tag=tag, status=status, **kwargs), status
@@ -78,6 +117,18 @@ def recv(comm, source=ANY_SOURCE, tag=ANY_TAG, status=..., **kwargs):
 
 @assert_mpi
 def send(comm, item, dest, tag=0, **kwargs):
+    """Send.
+
+    Send ``item`` via MPI Comm ``comm`` to destination ``dest``.
+
+    Args:
+        comm: MPI Comm.
+        item: Item.
+        dest: Destination rank or `MPI.Status` object.
+        tag: Tag.
+        **kwargs: Keyword arguments for comm.send.
+
+    """
     if isinstance(dest, MPI.Status):
         dest = dest.Get_source()
     comm.send(item, dest=dest, tag=tag, **kwargs)
@@ -102,11 +153,9 @@ def sink(comm, ranks: set):
     Receive items from `ranks` until receiving `StopIteration`.
 
     Examples:
-        ```
         >>> worker_ranks = {1, 2, 3}
         >>> for idx, item in sink(comm, ranks=worker_ranks):
         ...     pass  # handle item
-        ```
 
     Args:
         comm: MPI Comm.
@@ -129,18 +178,17 @@ def query(comm, source: int, forward_stop_signal=None):
     Query items from `source` (serving rank) until receiving `StopIteration`.
 
     Examples:
-        ```
+        >>> from celldetection import mpi
         >>> server_rank = 0
-        >>> for idx, item in query(comm, server_rank):
+        >>> for idx, item in mpi.query(comm, server_rank):
         ...     result = process(item)  # handle item
-        ...     send(comm, result, server_rank, tag=idx)  # send result to server
-        ```
-        ```
+        ...     mpi.send(comm, result, server_rank, tag=idx)  # send result to server
+
         >>> server_rank = 0
         >>> sink_rank = 1
-        >>> for idx, item in query(comm, server_rank, sink_rank):
+        >>> for idx, item in mpi.query(comm, server_rank, sink_rank):
         ...     result = process(item)  # handle item
-        ...     send(comm, result, sink_rank, tag=idx)  # send result to sink
+        ...     mpi.send(comm, result, sink_rank, tag=idx)  # send result to sink
         ```
 
     Args:
@@ -169,6 +217,11 @@ def serve(comm, ranks: set, iterator, progress=False, desc=None, stats=None):
 
     Serves items of `iterator` to `ranks`.
     Once all items have been served, `ranks` receive `StopIteration`.
+
+    Examples:
+        >>> from celldetection import mpi
+        >>> # Serve iterator to ranks
+        >>> mpi.serve(comm, iterator=range(10), ranks={1, 2, 3})
 
     Args:
         comm: MPI Comm.

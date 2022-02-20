@@ -54,12 +54,26 @@ class TwoConvNormRelu(nn.Sequential):
 
 
 class ScaledTanh(nn.Module):
-    def __init__(self, factor):
+    def __init__(self, factor, shift=0.):
+        """Scaled Tanh.
+
+        Computes the scaled and shifted hyperbolic tangent:
+
+        .. math:: tanh(x) * factor + shift
+
+        Args:
+            factor: Scaling factor.
+            shift: Shifting constant.
+        """
         super(ScaledTanh, self).__init__()
         self.factor = factor
+        self.shift = shift
 
     def forward(self, inputs: Tensor) -> Tensor:
-        return tanh(inputs) * self.factor
+        return tanh(inputs) * self.factor + self.shift
+
+    def extra_repr(self) -> str:
+        return 'factor={}, shift={}'.format(self.factor, self.shift)
 
 
 class ReplayCache:
