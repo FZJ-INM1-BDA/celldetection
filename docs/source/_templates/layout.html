@@ -123,8 +123,8 @@
   {%- block extrahead %} {% endblock %}
 
     <style>
-        .class>dt .sig-name span::before,
-        .function>dt .sig-name span::before {
+        .class>dt .sig-name>span::before,
+        .function>dt .sig-name>span::before {
             content: "{{ title }}.";
             color: var(--module-prefix-color);
         }
