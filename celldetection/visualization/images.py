@@ -61,18 +61,13 @@ def plot_mask(mask, alpha=1):
 
 
 def show_detection(image=None, contours=None, coordinates=None, boxes=None, scores=None, masks=None,
-                   figsize=None, label_stack=None, class_name='score', contour_line_width=2, contour_linestyle='--',
+                   figsize=None, label_stack=None, class_name='score', contour_line_width=2, contour_linestyle='-',
                    fill=.2, cmap=...):
     if figsize is not None:
         plt.figure(None, figsize)
     plt.grid(0)
     if image is not None:
-        if cmap is ...:
-            if image.ndim == 2:
-                cmap = 'gray'
-            else:
-                cmap = None
-        plt.imshow(image, cmap=cmap)
+        imshow(image, **({} if cmap is ... else dict(cmap=cmap)))
     if contours is not None:
         for c_i, c_ in enumerate(contours):
             kw = {}
@@ -143,7 +138,7 @@ def quiver_plot(vector_field, image=None, cmap='gray', figsize=None, qcmap='twil
     if figsize is not None:
         plt.figure(None, figsize)
     if image is not None:
-        plt.imshow(image, cmap=cmap)
+        imshow(image, cmap=cmap)
     plt.quiver(X, Y, U, V, angles, width=width, alpha=alpha, linewidth=linewidth, angles='xy', units='xy', scale=1,
                cmap=qcmap)
     plt.quiver(X, Y, U, V, width=width, edgecolor='k', alpha=alpha, facecolor='None', linewidth=linewidth, angles='xy',
