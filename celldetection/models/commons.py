@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch import Tensor, tanh, no_grad, as_tensor
 from ..util.util import gaussian_kernel, lookup_nn
 
-__all__ = ['TwoConvNormRelu', 'ScaledTanh', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm']
+__all__ = ['TwoConvNormRelu', 'ScaledTanh', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm', 'ResBlock']
 
 
 class GaussianBlur(nn.Conv2d):
@@ -100,3 +100,59 @@ class ReplayCache:
         return torch.stack([self.cache[i] for i in np.random.randint(0, len(self), num)], 0)
 
     add = append
+
+
+class ResBlock(nn.Module):
+    def __init__(
+            self,
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            padding=1,
+            norm_layer='BatchNorm2d',
+            activation='ReLU',
+            stride=1,
+            downsample=None,
+            **kwargs
+    ) -> None:
+        """ResBlock.
+
+        Typical ResBlock with variable kernel size and an included mapping of the identity to correct dimensions.
+
+        References:
+            https://arxiv.org/abs/1512.03385
+
+        Args:
+            in_channels: Input channels.
+            out_channels: Output channels.
+            kernel_size: Kernel size.
+            padding: Padding.
+            norm_layer: Norm layer.
+            activation: Activation.
+            stride: Stride.
+            downsample: Downsample module that maps identity to correct dimensions. Default is an optionally strided
+                1x1 Conv2d with BatchNorm2d, as per He et al. (2015) (`3.3. Network Architectures`, `Residual Network`,
+                "option (B)").
+            **kwargs: Keyword arguments for Conv2d layers.
+        """
+        super().__init__()
+        downsample = downsample or ConvNorm
+        if in_channels != out_channels or stride != 1:
+            self.downsample = downsample(in_channels, out_channels, 1, stride=stride, bias=False)
+        else:
+            self.downsample = nn.Identity()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False, stride=stride,
+                      **kwargs),
+            lookup_nn(norm_layer, out_channels),
+            lookup_nn(activation),
+            nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False, **kwargs),
+            lookup_nn(norm_layer, out_channels)
+        )
+        self.activation = lookup_nn(activation)
+
+    def forward(self, x: Tensor) -> Tensor:
+        identity = self.downsample(x)
+        out = self.block(x)
+        out += identity
+        return self.activation(out)
