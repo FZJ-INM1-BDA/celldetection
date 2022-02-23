@@ -2,7 +2,7 @@ import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
 from torchvision.models.resnet import ResNet as RN, Bottleneck, BasicBlock
-from ..util.util import Dict
+from ..util.util import Dict, lookup_nn
 
 __all__ = ['get_resnet', 'ResNet50', 'ResNet34', 'ResNet18', 'ResNet152', 'ResNet101', 'WideResNet101_2',
            'WideResNet50_2', 'ResNeXt152_32x8d', 'ResNeXt101_32x8d', 'ResNeXt50_32x4d']
@@ -34,7 +34,7 @@ def make_res_layer(block, inplanes, planes, blocks, norm_layer=nn.BatchNorm2d, b
 
 class ResNet(nn.Sequential):
     def __init__(self, in_channels, *body: nn.Module, initial_strides=2, base_channel=64, initial_pooling=True,
-                 **kwargs):
+                 final_layer=None, final_activation=None, **kwargs):
         assert len(body) > 0
         initial = nn.Sequential(
             nn.Conv2d(in_channels, base_channel, 7, padding=3, bias=False, stride=initial_strides),
@@ -43,12 +43,19 @@ class ResNet(nn.Sequential):
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1) if initial_pooling else nn.Identity(),
             body[0]
         )
-        super(ResNet, self).__init__(*([initial] + list(body[1:])))
+        components = [initial] + list(body[1:])
+        if final_layer is not None:
+            components += [final_layer]
+        if final_activation is not None:
+            components += [lookup_nn(final_activation)]
+        super(ResNet, self).__init__(*components)
 
 
 class VanillaResNet(ResNet):
-    def __init__(self, in_channels, layers=(2, 2, 2, 2), base_channel=64, **kwargs):
+    def __init__(self, in_channels, out_channels=0, layers=(2, 2, 2, 2), base_channel=64, **kwargs):
         self.out_channels = oc = (base_channel, base_channel * 2, base_channel * 4, base_channel * 8)
+        if out_channels and 'final_layer' not in kwargs.keys():
+            kwargs['final_layer'] = nn.Conv2d(self.out_channels[-1], out_channels, 1)
         super(VanillaResNet, self).__init__(
             in_channels,
             make_res_layer(BasicBlock, base_channel, oc[0], layers[0], stride=1, **kwargs),
@@ -60,19 +67,34 @@ class VanillaResNet(ResNet):
 
 
 class ResNet18(VanillaResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(ResNet18, self).__init__(in_channels, layers=(2, 2, 2, 2), **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        """ResNet 18.
+
+        ResNet 18 encoder.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels. If set to 0, the output layer is omitted.
+            final_layer: Final output layer. Default: 1x1 Conv2d if ``out_channels >= 1``, ``None`` otherwise.
+            final_activation: Final activation layer (e.g. ``nn.ReLU`` or ``'relu'``). Default: ``None``.
+            **kwargs: Additional keyword arguments.
+        """
+        super(ResNet18, self).__init__(in_channels, out_channels=out_channels, layers=(2, 2, 2, 2), **kwargs)
 
 
 class ResNet34(VanillaResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(ResNet34, self).__init__(in_channels, layers=(3, 4, 6, 3), **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        super(ResNet34, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 6, 3), **kwargs)
+
+    __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNet 34')
 
 
 class BottleResNet(ResNet):
-    def __init__(self, in_channels, layers=(3, 4, 6, 3), base_channel=64, **kwargs):
+    def __init__(self, in_channels, out_channels=0, layers=(3, 4, 6, 3), base_channel=64, **kwargs):
         ex = Bottleneck.expansion
         self.out_channels = oc = (base_channel * 4, base_channel * 8, base_channel * 16, base_channel * 32)
+        if out_channels and 'final_layer' not in kwargs.keys():
+            kwargs['final_layer'] = nn.Conv2d(self.out_channels[-1], out_channels, 1)
         super(BottleResNet, self).__init__(
             in_channels,
             make_res_layer(Bottleneck, base_channel, oc[0] // ex, layers[0], stride=1, **kwargs),
@@ -84,43 +106,64 @@ class BottleResNet(ResNet):
 
 
 class ResNet50(BottleResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(ResNet50, self).__init__(in_channels, layers=(3, 4, 6, 3), **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        super(ResNet50, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 6, 3), **kwargs)
+
+    __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNet 50')
 
 
 class ResNet101(BottleResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(ResNet101, self).__init__(in_channels, layers=(3, 4, 23, 3), **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        super(ResNet101, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 23, 3), **kwargs)
+
+    __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNet 101')
 
 
 class ResNet152(BottleResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(ResNet152, self).__init__(in_channels, layers=(3, 8, 36, 3), **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        super(ResNet152, self).__init__(in_channels, out_channels=out_channels, layers=(3, 8, 36, 3), **kwargs)
+
+    __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNet 152')
 
 
 class ResNeXt50_32x4d(BottleResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(ResNeXt50_32x4d, self).__init__(in_channels, layers=(3, 4, 6, 3), groups=32, base_width=4, **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        super(ResNeXt50_32x4d, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 6, 3), groups=32,
+                                              base_width=4, **kwargs)
+
+    __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNeXt 50')
 
 
 class ResNeXt101_32x8d(BottleResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(ResNeXt101_32x8d, self).__init__(in_channels, layers=(3, 4, 23, 3), groups=32, base_width=8, **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        super(ResNeXt101_32x8d, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 23, 3), groups=32,
+                                               base_width=8, **kwargs)
+
+    __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNeXt 101')
 
 
 class ResNeXt152_32x8d(BottleResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(ResNeXt152_32x8d, self).__init__(in_channels, layers=(3, 8, 36, 3), groups=32, base_width=8, **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        super(ResNeXt152_32x8d, self).__init__(in_channels, out_channels=out_channels, layers=(3, 8, 36, 3), groups=32,
+                                               base_width=8, **kwargs)
+
+    __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNeXt 152')
 
 
 class WideResNet50_2(BottleResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(WideResNet50_2, self).__init__(in_channels, layers=(3, 4, 6, 3), base_width=64 * 2, **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        super(WideResNet50_2, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 6, 3),
+                                             base_width=64 * 2, **kwargs)
+
+    __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'Wide ResNet 50')
 
 
 class WideResNet101_2(BottleResNet):
-    def __init__(self, in_channels, **kwargs):
-        super(WideResNet101_2, self).__init__(in_channels, layers=(3, 4, 23, 3), base_width=64 * 2, **kwargs)
+    def __init__(self, in_channels, out_channels=0, **kwargs):
+        super(WideResNet101_2, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 23, 3),
+                                              base_width=64 * 2, **kwargs)
+
+    __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'Wide ResNet 101')
 
 
 models_by_name = {
