@@ -138,7 +138,7 @@ class ResBlock(nn.Module):
         super().__init__()
         downsample = downsample or ConvNorm
         if in_channels != out_channels or stride != 1:
-            self.downsample = downsample(in_channels, out_channels, 1, stride=stride, bias=False)
+            self.downsample = downsample(in_channels, out_channels, 1, stride=stride, bias=False, padding=0)
         else:
             self.downsample = nn.Identity()
         self.block = nn.Sequential(
