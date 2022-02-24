@@ -22,6 +22,19 @@ class GaussianBlur(nn.Conv2d):
 class ConvNorm(nn.Sequential):
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1, norm_layer=nn.BatchNorm2d,
                  **kwargs):
+        """ConvNorm.
+
+        Just a convolution and a normalization layer.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            kernel_size: Kernel size.
+            padding: Padding.
+            stride: Stride.
+            norm_layer: Normalization layer (e.g. ``nn.BatchNorm2d``).
+            **kwargs: Additional keyword arguments.
+        """
         super().__init__(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride, **kwargs),
             norm_layer(out_channels),
@@ -30,26 +43,55 @@ class ConvNorm(nn.Sequential):
 
 class ConvNormRelu(nn.Sequential):
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1, norm_layer=nn.BatchNorm2d,
-                 **kwargs):
+                 activation='relu', **kwargs):
+        """ConvNormReLU.
+
+        Just a convolution, normalization layer and an activation.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            kernel_size: Kernel size.
+            padding: Padding.
+            stride: Stride.
+            norm_layer: Normalization layer (e.g. ``nn.BatchNorm2d``).
+            activation: Activation function. (e.g. ``nn.ReLU``, ``'relu'``)
+            **kwargs: Additional keyword arguments.
+        """
         super().__init__(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride, **kwargs),
             norm_layer(out_channels),
-            nn.ReLU(inplace=True)
+            lookup_nn(activation)
         )
 
 
 class TwoConvNormRelu(nn.Sequential):
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1, mid_channels=None,
-                 norm_layer=nn.BatchNorm2d, **kwargs):
+                 norm_layer=nn.BatchNorm2d, activation='relu', **kwargs):
+        """TwoConvNormReLU.
+
+        A sequence of conv, norm, activation, conv, norm, activation.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            kernel_size: Kernel size.
+            padding: Padding.
+            stride: Stride.
+            mid_channels: Mid-channels. Default: Same as ``out_channels``.
+            norm_layer: Normalization layer (e.g. ``nn.BatchNorm2d``).
+            activation: Activation function. (e.g. ``nn.ReLU``, ``'relu'``)
+            **kwargs: Additional keyword arguments.
+        """
         if mid_channels is None:
             mid_channels = out_channels
         super().__init__(
             nn.Conv2d(in_channels, mid_channels, kernel_size=kernel_size, padding=padding, stride=stride, **kwargs),
             norm_layer(mid_channels),
-            nn.ReLU(inplace=True),
+            lookup_nn(activation),
             nn.Conv2d(mid_channels, out_channels, kernel_size=kernel_size, padding=padding, **kwargs),
             norm_layer(out_channels),
-            nn.ReLU(inplace=True)
+            lookup_nn(activation)
         )
 
 
@@ -78,6 +120,16 @@ class ScaledTanh(nn.Module):
 
 class ReplayCache:
     def __init__(self, size=128):
+        """Replay Cache.
+
+        Typical cache that can be used for experience replay in GAN training.
+
+        Notes:
+            - Items remain on their current device.
+
+        Args:
+            size: Number of batch items that fit in cache.
+        """
         self.cache = []
         self.size = size
 
@@ -87,7 +139,17 @@ class ReplayCache:
     def is_empty(self):
         return len(self) <= 0
 
-    def append(self, x, fraction=.5):
+    def add(self, x, fraction=.5):
+        """Add.
+
+        Add a ``fraction`` of batch ``x`` to cache.
+        Drop random items if cache is full.
+
+        Args:
+            x: Batch Tensor[n, ...].
+            fraction: Fraction in 0..1.
+
+        """
         lx = len(x)
         for i in np.random.choice(np.arange(lx), int(lx * fraction), replace=False):
             self.cache.append(x[i].detach())
@@ -95,11 +157,17 @@ class ReplayCache:
             del self.cache[np.random.randint(0, len(self))]
 
     def __call__(self, num):
+        """Call.
+
+        Args:
+            num: Batch size / number of returned items.
+
+        Returns:
+            Tensor[num, ...]
+        """
         if self.is_empty():
             return None
         return torch.stack([self.cache[i] for i in np.random.randint(0, len(self), num)], 0)
-
-    add = append
 
 
 class ResBlock(nn.Module):
