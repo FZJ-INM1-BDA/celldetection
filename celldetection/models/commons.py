@@ -1,10 +1,11 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torch import Tensor, tanh, no_grad, as_tensor
+from torch import Tensor, tanh, no_grad, as_tensor, sigmoid
 from ..util.util import gaussian_kernel, lookup_nn
 
-__all__ = ['TwoConvNormRelu', 'ScaledTanh', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm', 'ResBlock']
+__all__ = ['TwoConvNormRelu', 'ScaledTanh', 'ScaledSigmoid', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm',
+           'ResBlock']
 
 
 class GaussianBlur(nn.Conv2d):
@@ -95,7 +96,21 @@ class TwoConvNormRelu(nn.Sequential):
         )
 
 
-class ScaledTanh(nn.Module):
+class ScaledX(nn.Module):
+    def __init__(self, fn, factor, shift=0.):
+        super().__init__()
+        self.factor = factor
+        self.shift = shift
+        self.fn = fn
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        return self.fn(inputs) * self.factor + self.shift
+
+    def extra_repr(self) -> str:
+        return 'factor={}, shift={}'.format(self.factor, self.shift)
+
+
+class ScaledTanh(ScaledX):
     def __init__(self, factor, shift=0.):
         """Scaled Tanh.
 
@@ -107,15 +122,22 @@ class ScaledTanh(nn.Module):
             factor: Scaling factor.
             shift: Shifting constant.
         """
-        super(ScaledTanh, self).__init__()
-        self.factor = factor
-        self.shift = shift
+        super().__init__(tanh, factor, shift)
 
-    def forward(self, inputs: Tensor) -> Tensor:
-        return tanh(inputs) * self.factor + self.shift
 
-    def extra_repr(self) -> str:
-        return 'factor={}, shift={}'.format(self.factor, self.shift)
+class ScaledSigmoid(ScaledX):
+    def __init__(self, factor, shift=0.):
+        """Scaled Sigmoid.
+
+        Computes the scaled and shifted sigmoid:
+
+        .. math:: sigmoid(x) * factor + shift
+
+        Args:
+            factor: Scaling factor.
+            shift: Shifting constant.
+        """
+        super().__init__(sigmoid, factor, shift)
 
 
 class ReplayCache:
