@@ -100,18 +100,23 @@ The examples already include toy data, so you can get started right away.
 ## 📝 Citing
 
 ```
-@misc{upschulte2021contour,
-      title={Contour Proposal Networks for Biomedical Instance Segmentation}, 
-      author={Eric Upschulte and Stefan Harmeling and Katrin Amunts and Timo Dickscheid},
-      year={2021},
-      eprint={2104.03393},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
+@article{UPSCHULTE2022102371,
+    title = {Contour proposal networks for biomedical instance segmentation},
+    journal = {Medical Image Analysis},
+    volume = {77},
+    pages = {102371},
+    year = {2022},
+    issn = {1361-8415},
+    doi = {https://doi.org/10.1016/j.media.2022.102371},
+    url = {https://www.sciencedirect.com/science/article/pii/S136184152200024X},
+    author = {Eric Upschulte and Stefan Harmeling and Katrin Amunts and Timo Dickscheid},
+    keywords = {Cell detection, Cell segmentation, Object detection, CPN},
 }
 ```
 
 ## 🔗 Links
+- [Article (sciencedirect)](https://www.sciencedirect.com/science/article/pii/S136184152200024X "Contour Proposal Networks for Biomedical Instance Segmentation")
+- [PDF (sciencedirect)](https://www.sciencedirect.com/sdfe/reader/pii/S136184152200024X/pdf "Contour Proposal Networks for Biomedical Instance Segmentation")
 - [Abstract (arXiv)](https://arxiv.org/abs/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
-- [PDF (arXiv)](https://arxiv.org/pdf/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
-- [Bibtex (arXiv)](https://arxiv.org/bibtex/2104.03393 "Contour Proposal Networks for Biomedical Instance Segmentation")
 - [PyPI](https://pypi.org/project/celldetection/ "CellDetection")
+- [Documentation](https://docs.celldetection.org "Documentation")
