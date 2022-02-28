@@ -1,3 +1,77 @@
+"""
+Practical Examples
+------------------
+
+In the example below a ``server`` distributes ``data`` to ``workers``. The workers process each data item individually
+and send results back to the server. After all data has been processed and send back, the server has all results
+in correct order.
+
+>>> from celldetection import mpi
+... import numpy as np
+...
+... comm, rank, ranks = mpi.get_comm(return_ranks=True)
+... assert ranks >= 2
+...
+... server = 0
+... workers = set(range(ranks)) - {server}
+...
+... data = range(10)
+...
+... # Server
+... if rank == server:
+...     results = mpi.serve(comm, iterator=data, ranks=workers)
+...     assert np.allclose(results, np.array(data) ** 2)  # results are in correct order
+...     print(results, flush=True)
+...
+... # Worker
+... else:
+...     for idx, item in mpi.query(comm, server):
+...         result = item ** 2  # process item
+...         mpi.send(comm, result, server, tag=idx)  # send result to server
+
+
+In the example below a ``server`` distributes ``data`` to ``workers``. The workers process each data item individually
+and send results to ``sink``. The sink can handle results individually on demenad. In this example results are simply
+collected and sorted.
+
+
+>>> from celldetection import mpi
+... import numpy as np
+...
+... comm, rank, ranks = mpi.get_comm(return_ranks=True)
+... assert ranks >= 3
+...
+... server = 0
+... sink = 1
+... workers = set(range(ranks)) - {server, sink}
+...
+... data = range(10)
+...
+... # Server
+... if rank == server:
+...     mpi.serve(comm, iterator=data, ranks=workers)
+...
+... # Sink
+... elif rank == sink:
+...     indices, results = [], []
+...     for idx, item in mpi.sink(comm, ranks=workers):
+...         indices.append(indices), results.append(item)  # handle result
+...     results = [x for _, x in sorted(zip(indices, results))]  # sort by index
+...     assert np.allclose(results, np.array(data) ** 2)  # results are in correct order
+...     print(results, flush=True)
+...
+... # Worker
+... else:
+...     for idx, item in mpi.query(comm, server, forward_stop_signal=sink):
+...         result = item ** 2  # process item
+...         mpi.send(comm, result, sink, tag=idx)  # send result to sink
+
+
+MPI Operations
+--------------
+"""
+
+
 import numpy as np
 
 _ERR = None
@@ -40,7 +114,7 @@ def get_hosts(comm, return_ranks=False):
 
 
 @assert_mpi
-def get_comm(comm=None, return_ranks=False):
+def get_comm(comm=None, return_ranks=True):
     comm = comm or MPI.COMM_WORLD
     res = comm,
     if return_ranks:
@@ -153,8 +227,9 @@ def sink(comm, ranks: set):
     Receive items from `ranks` until receiving `StopIteration`.
 
     Examples:
-        >>> worker_ranks = {1, 2, 3}
-        >>> for idx, item in sink(comm, ranks=worker_ranks):
+        >>> from celldetection import mpi
+        ... worker_ranks = {1, 2, 3}
+        ... for idx, item in mpi.sink(comm, ranks=worker_ranks):  # receive items from worker_ranks
         ...     pass  # handle item
 
     Args:
@@ -189,7 +264,6 @@ def query(comm, source: int, forward_stop_signal=None):
         >>> for idx, item in mpi.query(comm, server_rank, sink_rank):
         ...     result = process(item)  # handle item
         ...     mpi.send(comm, result, sink_rank, tag=idx)  # send result to sink
-        ```
 
     Args:
         comm: MPI Comm.
@@ -220,8 +294,7 @@ def serve(comm, ranks: set, iterator, progress=False, desc=None, stats=None):
 
     Examples:
         >>> from celldetection import mpi
-        >>> # Serve iterator to ranks
-        >>> mpi.serve(comm, iterator=range(10), ranks={1, 2, 3})
+        ... mpi.serve(comm, iterator=range(10), ranks={1, 2, 3})  # serve iterator to ranks
 
     Args:
         comm: MPI Comm.
@@ -250,7 +323,7 @@ def serve(comm, ranks: set, iterator, progress=False, desc=None, stats=None):
         send(comm, item, status, tag=idx)
         if progress and stats is not None:
             enum.desc = ' - '.join([desc] + [str(v()) for v in stats])
-    for _ in range(len(ranks)):
+    while len(ranks):
         result, status = recv(comm)
         ranks -= {status.Get_source()}
         if not (isinstance(result, type(next)) or result is next):
