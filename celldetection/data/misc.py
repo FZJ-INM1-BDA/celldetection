@@ -3,6 +3,11 @@ import torch
 from collections import OrderedDict
 from skimage import img_as_ubyte
 from ..util.util import get_device
+from skimage import measure
+
+__all__ = ['to_tensor', 'transpose_spatial', 'universal_dict_collate_fn', 'normalize_percentile', 'random_crop',
+           'channels_last2channels_first', 'channels_first2channels_last', 'ensure_tensor', 'rgb_to_scalar',
+           'padding_stack', 'labels2crops', 'rle2mask']
 
 
 def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dims=2, has_batch=False):
@@ -227,3 +232,30 @@ def rgb_to_scalar(inputs: np.ndarray, dtype='int32'):
     rgb = (rgb << 8) + green
     rgb = (rgb << 8) + blue
     return rgb
+
+
+def labels2crops(labels: np.ndarray, image: np.ndarray):
+    """Labels to crops.
+
+    Crop all objects that are represented in ``labels`` from given ``image`` and return a list of all image crops,
+    and a list of masks, each marking object pixels for respective crop.
+
+    Args:
+        labels: Label image. Array[h, w(, c)].
+        image: Image. Array[h, w, ...].
+
+    Returns:
+        (crop_list, mask_list)
+    """
+    if labels.ndim == 2:
+        labels = labels[..., None]
+    crops = []
+    masks = []
+    for z in range(labels.shape[2]):
+        for p in measure.regionprops(labels[:, :, z]):
+            if p.label <= 0:
+                continue
+            y0, x0, y1, x1 = p.bbox  # half-open interval [min_row; max_row) and [min_col; max_col)
+            crops.append(image[y0:y1, x0:x1])
+            masks.append(p.image)
+    return crops, masks

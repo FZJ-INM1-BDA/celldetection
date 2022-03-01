@@ -6,6 +6,7 @@
     --side-menu-hover-bg-color: rgba(255, 255, 255, 0.15);
     --side-menu-active-bg-color: rgba(255, 255, 255, 0.25);
     --side-menu-subfield-bg-color: rgba(51, 55, 73, .6);
+    --side-menu-version-field: rgb(51, 55, 73);
 }
 
 
@@ -6142,7 +6143,6 @@ h1, h2, .sig-name, .sig-name span {
 }
 
 .wy-menu-vertical li.current {
-    /*background: rgba(51, 55, 73, .6);  !*var(--side-menu-subfield-bg-color);*!*/
     background: var(--side-menu-subfield-bg-color);
 }
 
@@ -6175,4 +6175,8 @@ h1, h2, .sig-name, .sig-name span {
 
 .rst-versions .rst-current-version {
     background-color: var(--left-bar-bg);
+}
+
+.rst-versions.shift-up, .rst-versions.shift-up .rst-other-versions {
+    background: var(--side-menu-version-field);
 }
