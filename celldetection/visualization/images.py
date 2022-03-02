@@ -4,7 +4,7 @@ import matplotlib.patheffects as path_effects
 import numpy as np
 import seaborn as sbn
 
-__all__ = ['imshow', 'plot_mask', 'plot_box', 'plot_text', 'quiver_plot', 'show_detection', 'save_fig']
+__all__ = ['imshow', 'plot_mask', 'plot_box', 'plot_text', 'quiver_plot', 'show_detection', 'save_fig', 'imshow_grid']
 
 
 def imshow(image, figsize=None, **kw):
@@ -15,7 +15,7 @@ def imshow(image, figsize=None, **kw):
     Args:
         image: Image as Array[h, w], Array[h, w, c], Array[1, h, w] or Array[1, h, w, c]. Images without channels or
             just one channel are plotted as grayscale images by default.
-        figsize: Figsize. If specified a new ``Figure(figsize=figsize)`` with is created.
+        figsize: Figure size. If specified, a new ``plt.figure(figsize=figsize)`` is created.
         **kw: Imshow keyword arguments.
 
     Returns:
@@ -144,3 +144,32 @@ def quiver_plot(vector_field, image=None, cmap='gray', figsize=None, qcmap='twil
     plt.quiver(X, Y, U, V, width=width, edgecolor='k', alpha=alpha, facecolor='None', linewidth=linewidth, angles='xy',
                units='xy', scale=1, cmap=qcmap)
     plt.grid(0)
+
+
+def imshow_grid(*images, titles=None, figsize=(3, 3), tight=True, **kwargs):
+    """Imshow grid.
+
+    Display a list of images in a NxN grid.
+
+    Args:
+        *images: Images.
+        titles: Titles. Either string or list of strings (one for each image).
+        figsize: Figure size per image.
+        tight: Whether to use tight layout.
+        **kwargs: Keyword arguments for ``cd.imshow``.
+
+    """
+    if len(images) == 1 and isinstance(images[0], (list, tuple)):
+        images, = images
+    n = int(np.ceil(np.sqrt(len(images))))
+    if figsize is not None:
+        plt.figure(None, (figsize[0] * n, figsize[1] * n))
+    for i, img in enumerate(images):
+        plt.subplot(n, n, i + 1)
+        imshow(img, **kwargs)
+        if tight:
+            plt.tight_layout()
+        if isinstance(titles, str):
+            plt.title(titles)
+        elif isinstance(titles, (list, tuple)):
+            plt.title(titles[i])
