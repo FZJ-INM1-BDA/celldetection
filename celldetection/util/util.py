@@ -12,12 +12,13 @@ from os.path import join
 from os import makedirs
 import pynvml as nv
 from cv2 import getGaussianKernel
+import h5py
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
-           'replace_module_']
+           'replace_module_', 'to_h5']
 
 
 class Dict(dict):
@@ -563,6 +564,7 @@ class Percent(float):
     Printable float that represents percentage.
 
     """
+
     def __str__(self):
         return '%g%%' % np.round(self, 2)
 
@@ -648,3 +650,33 @@ class Tiling:
             num_tiles=self.num_tiles,
             num_tiles_per_dim=self.num_tiles_per_dim
         )
+
+
+def to_h5(filename, mode='w', chunks=False, compression=None, overwrite=False, create_dataset_kw: dict = None,
+          **kwargs):
+    """To hdf5 file.
+
+    Write data to hdf5 file.
+
+    Args:
+        filename: File name.
+        mode: Mode.
+        chunks: Chunks setting for created datasets. Chunk shape, or True to enable auto-chunking.
+        compression: Compression setting for created datasets. Legal values are 'gzip', 'szip', 'lzf'. If an integer
+            in range(10), this indicates gzip compression level. Otherwise, an integer indicates the number of a
+            dynamically loaded compression filter.
+        overwrite: Whether to overwrite existing dataset.
+        create_dataset_kw: Additional keyword arguments for ``h5py.File().create_dataset``.
+        **kwargs: Data as ``{dataset_name: data}``.
+
+    """
+    create_dataset_kw = {} if create_dataset_kw is None else create_dataset_kw
+    with h5py.File(filename, mode) as h:
+        for k, v in kwargs.items():
+            exists = k in h
+            if overwrite and exists:
+                del h[k]
+            elif exists:
+                h[k][:] = v
+            else:
+                h.create_dataset(k, data=v, compression=compression, chunks=chunks, **create_dataset_kw)
