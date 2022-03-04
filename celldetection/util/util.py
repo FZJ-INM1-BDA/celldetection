@@ -18,7 +18,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fet
            'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
-           'replace_module_', 'to_h5']
+           'replace_module_', 'to_h5', 'to_tiff']
 
 
 class Dict(dict):
@@ -680,3 +680,32 @@ def to_h5(filename, mode='w', chunks=False, compression=None, overwrite=False, c
                 h[k][:] = v
             else:
                 h.create_dataset(k, data=v, compression=compression, chunks=chunks, **create_dataset_kw)
+
+
+def to_tiff(filename, image, mode='w', method='tile', bigtiff=True):
+    """To tiff file.
+
+    Write ``image`` to tiff file using ``pytiff``.
+    By default, the tiff is tiled, s.t. crops can be read from disk without loading the entire image into memory first.
+
+    Notes:
+        - ``pytiff`` must be installed to use this function.
+
+    References:
+        https://pytiff.readthedocs.io/en/master/quickstart.html
+
+    Args:
+        filename: File name.
+        image: Image.
+        mode: Mode.
+        method: Method. Either ``'tile'`` or ``'scanline'``.
+        bigtiff: Whether to use bigtiff format.
+
+    """
+    try:
+        from pytiff import Tiff
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError('To use the to_tiff function pytiff must be installed.\n'
+                                  'See: https://pytiff.readthedocs.io/en/master/quickstart.html')
+    with Tiff(filename, mode, bigtiff=bigtiff) as handle:
+        handle.write(image, method=method)
