@@ -250,7 +250,7 @@ class ResBlock(nn.Module):
 
 
 class NoAmp(nn.Module):
-    def __init__(self, module: Type[torch.Module]):
+    def __init__(self, module: Type[nn.Module]):
         """No AMP.
 
         Wrap a ``Module`` object and disable ``torch.cuda.amp.autocast`` during forward pass if it is enabled.
