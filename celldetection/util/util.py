@@ -2,7 +2,8 @@ import numpy as np
 import inspect
 import torch
 import torch.nn as nn
-from typing import Union, List, Tuple, Any, Dict as TDict, Iterator
+import torch.nn.init as init
+from typing import Union, List, Tuple, Any, Dict as TDict, Iterator, Type
 from torch import Tensor
 from torch.hub import load_state_dict_from_url
 import hashlib
@@ -14,11 +15,11 @@ import pynvml as nv
 from cv2 import getGaussianKernel
 import h5py
 
-__all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'to_device', 'asnumpy', 'fetch_model', 'random_code_name',
-           'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
+__all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'asnumpy', 'fetch_model',
+           'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
-           'replace_module_', 'to_h5', 'to_tiff']
+           'iter_submodules', 'replace_module_', 'wrap_module_', 'to_h5', 'to_tiff']
 
 
 class Dict(dict):
@@ -106,6 +107,33 @@ def add_to_loss_dict(d: dict, key: str, loss: torch.Tensor, weight=None):
     d[key] = loss if dk is None else dk + loss
 
 
+def tensor_to(inputs: Union[list, tuple, dict, Tensor], *args, **kwargs):
+    """Tensor to device/dtype/other.
+
+    Recursively calls ``tensor.to(*args, **kwargs)`` for all ``Tensors`` in ``inputs``.
+
+    Notes:
+        - Works recursively.
+        - Non-Tensor items are not altered.
+
+    Args:
+        inputs: Tensor, list, tuple or dict. Non-Tensor objects are ignored. Tensors are substituted by result of
+            ``tensor.to(*args, **kwargs)`` call.
+        *args: Arguments. See docstring of ``torch.Tensor.to``.
+        **kwargs: Keyword arguments. See docstring of ``torch.Tensor.to``.
+
+    Returns:
+        Inputs with Tensors replaced by ``tensor.to(*args, **kwargs)``.
+    """
+    if isinstance(inputs, Tensor):
+        inputs = inputs.to(*args, **kwargs)
+    elif isinstance(inputs, dict):
+        inputs = {k: tensor_to(b, inputs) for k, b in inputs.items()}
+    elif isinstance(inputs, (list, tuple)):
+        inputs = type(inputs)([tensor_to(b, *args, **kwargs) for b in inputs])
+    return inputs
+
+
 def to_device(batch: Union[list, tuple, dict, Tensor], device):
     """To device.
 
@@ -117,19 +145,13 @@ def to_device(batch: Union[list, tuple, dict, Tensor], device):
         - Non-Tensor items are not altered.
 
     Args:
-        batch: Input.
+        batch: Tensor, list, tuple or dict. Non-Tensor objects are ignored. Tensors are moved to ``device``.
         device: Device.
 
     Returns:
         Input with Tensors moved to device.
     """
-    if isinstance(batch, Tensor):
-        batch = batch.to(device)
-    elif isinstance(batch, dict):
-        batch = {k: to_device(b, device) for k, b in batch.items()}
-    elif isinstance(batch, (list, tuple)):
-        batch = type(batch)([to_device(b, device) for b in batch])
-    return batch
+    return tensor_to(batch, device)
 
 
 def asnumpy(v):
@@ -366,10 +388,18 @@ def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, 
         scheduler.step()
 
 
-def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, **kwargs):
+def iter_submodules(module: nn.Module, class_or_tuple, recursive=True):
+    for k, mod in module._modules.items():
+        if isinstance(mod, class_or_tuple):
+            yield module._modules, k, mod
+        if isinstance(mod, nn.Module) and recursive:
+            yield from iter_submodules(mod, class_or_tuple, recursive=recursive)
+
+
+def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, recursive=True, **kwargs):
     """Tweak module.
 
-    Sets attributes for all modules that are instances of given `class_or_tuple`.
+    Set attributes for all modules that are instances of given `class_or_tuple`.
 
     Examples:
         >>> import celldetection as cd, torch.nn as nn
@@ -383,41 +413,50 @@ def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, **kwargs):
         module: PyTorch `Module`.
         class_or_tuple: All instances of given `class_or_tuple` are to be tweaked.
         must_exist: If `True` an AttributeError is raised if keywords do not exist.
+        recursive: Whether to search for modules recursively.
         **kwargs: Attributes to be tweaked: `<attribute_name>=<value>`.
     """
-    for mod in module.modules():
-        if isinstance(mod, class_or_tuple):
-            for k, v in kwargs.items():
-                if must_exist:
-                    getattr(mod, k)
-                setattr(mod, k, v)
+    for handle, key, mod in iter_submodules(module, class_or_tuple, recursive=recursive):
+        for k, v in kwargs.items():
+            if must_exist:
+                getattr(mod, k)
+            setattr(mod, k, v)
 
 
-def replace_module_(module: nn.Module, class_or_tuple, substitute: nn.Module, recursive=True, **kwargs):
+def replace_module_(module: nn.Module, class_or_tuple, substitute: Union[Type[nn.Module], nn.Module], recursive=True,
+                    inherit_attr: list = None, **kwargs):
     """Replace module.
 
     Replace all occurrences of `class_or_tuple` in `module` with `substitute`.
 
     Examples:
         >>> # Replace all ReLU activations with LeakyReLU
-        ... replace_module_(network, nn.ReLU, nn.LeakyReLU)
+        ... cd.replace_module_(network, nn.ReLU, nn.LeakyReLU)
+
+        >>> # Replace all BatchNorm layers with InstanceNorm and inherit `num_features` attribute
+        ... cd.replace_module_(network, nn.BatchNorm2d, nn.InstanceNorm2d, inherit_attr=['num_features'])
 
     Args:
         module: Module.
         class_or_tuple: Class or tuple of classes that are to be replaced.
         substitute: Substitute class or object.
         recursive: Whether to replace modules recursively.
+        inherit_attr: Attributes to be inherited. List of attribute names. Attribute values are retrieved from replaced
+            module and passed to substitute constructor.
         **kwargs: Keyword arguments passed to substitute constructor if it is a class.
 
     """
-    for k, mod in module._modules.items():
-        if isinstance(mod, class_or_tuple):
-            if type(substitute) == type:
-                module._modules[k] = substitute(**kwargs)
-            else:
-                module._modules[k] = substitute
-        elif isinstance(mod, nn.Module) and recursive:
-            replace_module_(mod, substitute=substitute, class_or_tuple=class_or_tuple, recursive=recursive, **kwargs)
+    for handle, k, mod in iter_submodules(module, class_or_tuple, recursive=recursive):
+        if isinstance(substitute, nn.Module):
+            handle[k] = substitute
+        else:
+            inherit_attr = inherit_attr or []
+            handle[k] = substitute(**kwargs, **{k: mod.__dict__[k] for k in inherit_attr})
+
+
+def wrap_module_(module: nn.Module, class_or_tuple, wrapper, recursive=True, **kwargs):
+    for handle, k, mod in iter_submodules(module, class_or_tuple, recursive=recursive):
+        handle[k] = wrapper(handle[k], **kwargs)
 
 
 def get_device(module: Union[nn.Module, Tensor, torch.device]):
