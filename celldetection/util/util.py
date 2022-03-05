@@ -128,7 +128,7 @@ def tensor_to(inputs: Union[list, tuple, dict, Tensor], *args, **kwargs):
     if isinstance(inputs, Tensor):
         inputs = inputs.to(*args, **kwargs)
     elif isinstance(inputs, dict):
-        inputs = {k: tensor_to(b, inputs) for k, b in inputs.items()}
+        inputs = {k: tensor_to(b, *args, **kwargs) for k, b in inputs.items()}
     elif isinstance(inputs, (list, tuple)):
         inputs = type(inputs)([tensor_to(b, *args, **kwargs) for b in inputs])
     return inputs
