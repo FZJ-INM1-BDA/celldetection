@@ -6,7 +6,7 @@ from ..util.util import gaussian_kernel, lookup_nn, tensor_to
 from typing import Type
 
 __all__ = ['TwoConvNormRelu', 'ScaledTanh', 'ScaledSigmoid', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm',
-           'ResBlock', 'NoAmp']
+           'ResBlock', 'NoAmp', 'ReadOut']
 
 
 class GaussianBlur(nn.Conv2d):
@@ -274,3 +274,40 @@ class NoAmp(nn.Module):
         else:
             result = self.module(*args, **kwargs)
         return result
+
+
+class ReadOut(nn.Module):
+    def __init__(
+            self,
+            channels_in,
+            channels_out,
+            kernel_size=3,
+            padding=1,
+            activation='relu',
+            norm='batchnorm2d',
+            final_activation=None,
+            dropout=0.1,
+            channels_mid=None,
+            stride=1
+    ):
+        super().__init__()
+        self.channels_out = channels_out
+        if channels_mid is None:
+            channels_mid = channels_in
+
+        self.block = nn.Sequential(
+            nn.Conv2d(channels_in, channels_mid, kernel_size, padding=padding, stride=stride),
+            lookup_nn(norm, channels_mid),
+            lookup_nn(activation),
+            nn.Dropout2d(p=dropout) if dropout else nn.Identity(),
+            nn.Conv2d(channels_mid, channels_out, 1),
+        )
+
+        if final_activation is ...:
+            self.activation = lookup_nn(activation)
+        else:
+            self.activation = lookup_nn(final_activation)
+
+    def forward(self, x):
+        out = self.block(x)
+        return self.activation(out)
