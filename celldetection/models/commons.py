@@ -2,10 +2,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch import Tensor, tanh, no_grad, as_tensor, sigmoid
-from ..util.util import gaussian_kernel, lookup_nn
+from ..util.util import gaussian_kernel, lookup_nn, tensor_to
+from typing import Type
 
 __all__ = ['TwoConvNormRelu', 'ScaledTanh', 'ScaledSigmoid', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm',
-           'ResBlock']
+           'ResBlock', 'NoAmp']
 
 
 class GaussianBlur(nn.Conv2d):
@@ -246,3 +247,30 @@ class ResBlock(nn.Module):
         out = self.block(x)
         out += identity
         return self.activation(out)
+
+
+class NoAmp(nn.Module):
+    def __init__(self, module: Type[torch.Module]):
+        """No AMP.
+
+        Wrap a ``Module`` object and disable ``torch.cuda.amp.autocast`` during forward pass if it is enabled.
+
+        Examples:
+            >>> import celldetection as cd
+            ... model = cd.models.CpnU22(1)
+            ... # Wrap all ReadOut modules in model with NoAmp, thus disabling autocast for those modules
+            ... cd.wrap_module_(model, cd.models.ReadOut, cd.models.NoAmp)
+
+        Args:
+            module: Module.
+        """
+        super().__init__()
+        self.module = module
+
+    def forward(self, *args, **kwargs):
+        if torch.is_autocast_enabled():
+            with torch.cuda.amp.autocast(enabled=False):
+                result = self.module(*tensor_to(args, torch.float32), **tensor_to(kwargs, torch.float32))
+        else:
+            result = self.module(*args, **kwargs)
+        return result
