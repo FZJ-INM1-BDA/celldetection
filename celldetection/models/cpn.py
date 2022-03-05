@@ -1,4 +1,3 @@
-from ..util.util import lookup_nn
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -6,7 +5,7 @@ import torch.nn.functional as F
 from collections import OrderedDict
 from typing import Dict
 from ..util.util import add_to_loss_dict, reduce_loss_dict, fetch_model
-from .commons import ScaledTanh
+from .commons import ScaledTanh, ReadOut
 from ..ops.commons import downsample_labels
 from ..ops.cpn import rel_location2abs_location, fouriers2contours, scale_contours, scale_fourier, batched_box_nms, \
     order_weighting, resolve_refinement_buckets
@@ -17,43 +16,6 @@ from .fpn import ResNet34FPN, ResNet18FPN, ResNet50FPN, ResNet101FPN, ResNet152F
 __all__ = ['CPN', 'CpnSlimU22', 'CpnU22', 'CpnWideU22', 'CpnResNet18FPN', 'CpnResNet34FPN', 'CpnResNet50FPN',
            'CpnResNet101FPN', 'CpnResNet152FPN', 'CpnResNeXt50FPN', 'CpnResNeXt101FPN', 'CpnResNeXt152FPN',
            'CpnWideResNet50FPN', 'CpnWideResNet101FPN', 'CpnMobileNetV3LargeFPN', 'CpnMobileNetV3SmallFPN']
-
-
-class ReadOut(nn.Module):
-    def __init__(
-            self,
-            channels_in,
-            channels_out,
-            kernel_size=3,
-            padding=1,
-            activation='relu',
-            norm='batchnorm2d',
-            final_activation=None,
-            dropout=0.1,
-            channels_mid=None,
-            stride=1
-    ):
-        super().__init__()
-        self.channels_out = channels_out
-        if channels_mid is None:
-            channels_mid = channels_in
-
-        self.block = nn.Sequential(
-            nn.Conv2d(channels_in, channels_mid, kernel_size, padding=padding, stride=stride),
-            lookup_nn(norm, channels_mid),
-            lookup_nn(activation),
-            nn.Dropout2d(p=dropout) if dropout else nn.Identity(),
-            nn.Conv2d(channels_mid, channels_out, 1),
-        )
-
-        if final_activation is ...:
-            self.activation = lookup_nn(activation)
-        else:
-            self.activation = lookup_nn(final_activation)
-
-    def forward(self, x):
-        out = self.block(x)
-        return self.activation(out)
 
 
 class CPNCore(nn.Module):
