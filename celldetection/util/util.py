@@ -200,7 +200,13 @@ def fetch_model(name, map_location=None, **kwargs):
 
     """
     url = name if name.startswith('http') else f'https://celldetection.org/torch/models/{name}.pt'
-    return load_state_dict_from_url(url, map_location=map_location, **kwargs)
+    m = load_state_dict_from_url(url, map_location=map_location, **kwargs)
+    if isinstance(m, dict) and 'cd.models' in m.keys():
+        from .. import models
+        conf = m['cd.models']
+        m = getattr(models, conf['model'])(*conf['a'], **conf['kw'])
+        m.load_state_dict(conf['state_dict'])
+    return m
 
 
 def random_code_name(chars=4) -> str:
