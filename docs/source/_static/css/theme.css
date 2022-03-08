@@ -6107,7 +6107,8 @@ h1, h2, .sig-name, .sig-name span {
     opacity: .42;
 }
 
-.sig-param span.n + span.p + span.n span {  /* Type hints */
+.sig-param span.n + span.p + span.n>span,
+.sig-param span.n + span.p + span.w + span.n>span {  /* Type hints */
     color: var(--left-bar-bg);
     opacity: .22;
 }
