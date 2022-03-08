@@ -7,7 +7,7 @@ from skimage import measure
 
 __all__ = ['to_tensor', 'transpose_spatial', 'universal_dict_collate_fn', 'normalize_percentile', 'random_crop',
            'channels_last2channels_first', 'channels_first2channels_last', 'ensure_tensor', 'rgb_to_scalar',
-           'padding_stack', 'labels2crops', 'rle2mask']
+           'padding_stack', 'labels2crops', 'rle2mask', 'resample_contours']
 
 
 def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dims=2, has_batch=False):
@@ -259,3 +259,40 @@ def labels2crops(labels: np.ndarray, image: np.ndarray):
             crops.append(image[y0:y1, x0:x1])
             masks.append(p.image)
     return crops, masks
+
+
+def resample_contours(contours, num=None, close=True, epsilon=1e-6):
+    """Resample contour.
+
+    Sample ´´num´´ equidistant points on each contour in ``contours``.
+
+    Notes:
+        - Works for closed and open contours.
+
+    Args:
+        contours: Contours to sample from. Array[..., num', 2] or list of Arrays.
+        num: Number of points.
+        close: Set True if ``contours`` contains closed contours, with the end point not being equal to the start point.
+            Set False otherwise.
+        epsilon: Epsilon.
+
+    Returns:
+        Array[..., num, 2] or list of Arrays.
+    """
+    if isinstance(contours, (list, tuple)):
+        return type(contours)([resample_contours(c, num=num, close=close, epsilon=epsilon) for c in contours])
+    if close:  # should be closed for this implementation to work
+        contours = np.concatenate((contours, contours[..., :1, :]), -2)
+    dxy = np.diff(contours, axis=-2)  # shape: (..., p, d)
+    dt = np.sqrt(np.sum(np.square(dxy), axis=-1)) + epsilon  # shape: (..., p)
+    cumsum = np.cumsum(dt, axis=-1)  # shape: (..., p)
+    if num is None or isinstance(num, float):
+        num = int(np.max(np.round(cumsum[..., -1])) * (num if isinstance(num, float) else 1))
+    cumsum0 = np.concatenate((np.zeros_like(cumsum[..., :1]), cumsum), -1)
+    ts = np.linspace(0, cumsum[..., -1], num + 1, axis=-1)[..., :-1]
+    v = ts[..., :, None] <= cumsum[..., None, :]
+    idx = np.where(v.max(-1))[:-1] + (np.argmax(v, axis=-1).ravel(),)
+    alpha = ((ts - cumsum0[idx].reshape(*ts.shape)) / dt[idx].reshape(*ts.shape))[..., None]
+    shape = contours.shape[:-2] + (num, 2)
+    sample = contours[idx].reshape(shape) * (1 - alpha) + contours[idx[:-1] + (idx[-1] + 1,)].reshape(shape) * alpha
+    return sample
