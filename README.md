@@ -35,66 +35,88 @@ The examples already include toy data, so you can get started right away.
 - [Train a model with multiple object classes](https://github.com/FZJ-INM1-BDA/celldetection/blob/main/demos/demo-multiclass.ipynb)
 
 ## 🔬 Models
-`from celldetection import models`
+`import celldetection as cd`
 
-###### Contour Proposal Networks:
-- `models.CpnU22`
-- `models.CpnSlimU22`
-- `models.CpnWideU22`
-- `models.CpnResNet18FPN`
-- `models.CpnResNet34FPN`
-- `models.CpnResNet50FPN`
-- `models.CpnResNet101FPN`
-- `models.CpnResNet152FPN`
-- `models.CpnResNeXt50FPN`
-- `models.CpnResNeXt101FPN`
-- `models.CpnResNeXt152FPN`
-- `models.CpnWideResNet50FPN`
-- `models.CpnWideResNet101FPN`
-- `models.CpnMobileNetV3SmallFPN`
-- `models.CpnMobileNetV3LargeFPN`
-- `models.CPN`
+###### Contour Proposal Networks
 
-###### U-Nets:
-- `models.U22`
-- `models.SlimU22`
-- `models.WideU22`
-- `models.U17`
-- `models.U12`
-- `models.UNetEncoder`
-- `models.UNet`
+- [`cd.models.CPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CPN)
+- [`cd.models.CpnU22`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnU22)
+- [`cd.models.CpnSlimU22`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnSlimU22)
+- [`cd.models.CpnResUNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnResUNet)
+- [`cd.models.CpnWideU22`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnWideU22)
+- [`cd.models.CpnResNet34FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnResNet34FPN)
+- [`cd.models.CpnResNet50FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnResNet50FPN)
+- [`cd.models.CpnResNet18FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnResNet18FPN)
+- [`cd.models.CpnResNeXt50FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnResNeXt50FPN)
+- [`cd.models.CpnResNet101FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnResNet101FPN)
+- [`cd.models.CpnResNet152FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnResNet152FPN)
+- [`cd.models.CpnResNeXt101FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnResNeXt101FPN)
+- [`cd.models.CpnResNeXt152FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnResNeXt152FPN)
+- [`cd.models.CpnWideResNet50FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnWideResNet50FPN)
+- [`cd.models.CpnWideResNet101FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnWideResNet101FPN)
+- [`cd.models.CpnMobileNetV3SmallFPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnMobileNetV3SmallFPN)
+- [`cd.models.CpnMobileNetV3LargeFPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.cpn.CpnMobileNetV3LargeFPN)
 
-###### Feature Pyramid Networks:
-- `models.ResNet18FPN`
-- `models.ResNet34FPN`
-- `models.ResNet50FPN`
-- `models.ResNet101FPN`
-- `models.ResNet152FPN`
-- `models.ResNeXt50FPN`
-- `models.ResNeXt101FPN`
-- `models.ResNeXt152FPN`
-- `models.WideResNet50FPN`
-- `models.WideResNet101FPN`
-- `models.MobileNetV3SmallFPN`
-- `models.MobileNetV3LargeFPN`
-- `models.FPN`
 
-###### Residual Networks:
-- `models.ResNet18`
-- `models.ResNet34`
-- `models.ResNet50`
-- `models.ResNet101`
-- `models.ResNet152`
-- `models.ResNeXt50_32x4d`
-- `models.ResNeXt101_32x8d`
-- `models.ResNeXt152_32x8d`
-- `models.WideResNet50_2`
-- `models.WideResNet101_2`
+###### U-Nets
 
-###### Mobile Networks:
-- `models.MobileNetV3Small`
-- `models.MobileNetV3Large`
+- [`cd.models.U22`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.U22)
+- [`cd.models.U17`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.U17)
+- [`cd.models.U12`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.U12)
+- [`cd.models.UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.UNet)
+- [`cd.models.WideU22`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.WideU22)
+- [`cd.models.SlimU22`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.SlimU22)
+- [`cd.models.ResUNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.ResUNet)
+- [`cd.models.UNetEncoder`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.UNetEncoder)
+- [`cd.models.ResNet50UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.ResNet50UNet)
+- [`cd.models.ResNet18UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.ResNet18UNet)
+- [`cd.models.ResNet34UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.ResNet34UNet)
+- [`cd.models.ResNet152UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.ResNet152UNet)
+- [`cd.models.ResNet101UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.ResNet101UNet)
+- [`cd.models.ResNeXt50UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.ResNeXt50UNet)
+- [`cd.models.ResNeXt152UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.ResNeXt152UNet)
+- [`cd.models.ResNeXt101UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.ResNeXt101UNet)
+- [`cd.models.WideResNet50UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.WideResNet50UNet)
+- [`cd.models.WideResNet101UNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.WideResNet101UNet)
+- [`cd.models.MobileNetV3SmallUNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.MobileNetV3SmallUNet)
+- [`cd.models.MobileNetV3LargeUNet`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.unet.MobileNetV3LargeUNet)
 
+
+###### Feature Pyramid Networks
+
+- [`cd.models.FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.FPN)
+- [`cd.models.ResNet18FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.ResNet18FPN)
+- [`cd.models.ResNet34FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.ResNet34FPN)
+- [`cd.models.ResNet50FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.ResNet50FPN)
+- [`cd.models.ResNeXt50FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.ResNeXt50FPN)
+- [`cd.models.ResNet101FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.ResNet101FPN)
+- [`cd.models.ResNet152FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.ResNet152FPN)
+- [`cd.models.ResNeXt101FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.ResNeXt101FPN)
+- [`cd.models.ResNeXt152FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.ResNeXt152FPN)
+- [`cd.models.WideResNet50FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.WideResNet50FPN)
+- [`cd.models.WideResNet101FPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.WideResNet101FPN)
+- [`cd.models.MobileNetV3LargeFPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.MobileNetV3LargeFPN)
+- [`cd.models.MobileNetV3SmallFPN`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.fpn.MobileNetV3SmallFPN)
+
+
+###### Residual Networks
+
+- [`cd.models.ResNet18`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.ResNet18)
+- [`cd.models.ResNet34`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.ResNet34)
+- [`cd.models.ResNet50`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.ResNet50)
+- [`cd.models.ResNet101`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.ResNet101)
+- [`cd.models.ResNet152`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.ResNet152)
+- [`cd.models.WideResNet50_2`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.WideResNet50_2)
+- [`cd.models.ResNeXt50_32x4d`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.ResNeXt50_32x4d)
+- [`cd.models.WideResNet101_2`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.WideResNet101_2)
+- [`cd.models.ResNeXt101_32x8d`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.ResNeXt101_32x8d)
+- [`cd.models.ResNeXt152_32x8d`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.resnet.ResNeXt152_32x8d)
+
+
+###### Mobile Networks
+
+- [`cd.models.MobileNetV3Large`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.mobilenetv3.MobileNetV3Large)
+- [`cd.models.MobileNetV3Small`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.mobilenetv3.MobileNetV3Small)
 
 
 ## 📝 Citing
