@@ -555,7 +555,7 @@ class CpnU22(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=U22(in_channels, 0, **backbone_kwargs),
+            backbone=U22(in_channels, 0, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -592,7 +592,7 @@ class CpnResUNet(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=ResUNet(in_channels, 0, **backbone_kwargs),
+            backbone=ResUNet(in_channels, 0, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -629,7 +629,7 @@ class CpnSlimU22(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=SlimU22(in_channels, 0, **backbone_kwargs),
+            backbone=SlimU22(in_channels, 0, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -667,7 +667,7 @@ class CpnWideU22(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=WideU22(in_channels, 0, **backbone_kwargs),
+            backbone=WideU22(in_channels, 0, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -705,7 +705,7 @@ class CpnResNet18FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=ResNet18FPN(in_channels, **backbone_kwargs),
+            backbone=ResNet18FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -742,7 +742,7 @@ class CpnResNet34FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=ResNet34FPN(in_channels, **backbone_kwargs),
+            backbone=ResNet34FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -779,7 +779,7 @@ class CpnResNet50FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=ResNet50FPN(in_channels, **backbone_kwargs),
+            backbone=ResNet50FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -816,7 +816,7 @@ class CpnResNet101FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=ResNet101FPN(in_channels, **backbone_kwargs),
+            backbone=ResNet101FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -853,7 +853,7 @@ class CpnResNet152FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=ResNet152FPN(in_channels, **backbone_kwargs),
+            backbone=ResNet152FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -890,7 +890,7 @@ class CpnResNeXt50FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=ResNeXt50FPN(in_channels, **backbone_kwargs),
+            backbone=ResNeXt50FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -927,7 +927,7 @@ class CpnResNeXt101FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=ResNeXt101FPN(in_channels, **backbone_kwargs),
+            backbone=ResNeXt101FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -964,7 +964,7 @@ class CpnResNeXt152FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=ResNeXt152FPN(in_channels, **backbone_kwargs),
+            backbone=ResNeXt152FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -1001,7 +1001,7 @@ class CpnWideResNet50FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=WideResNet50FPN(in_channels, **backbone_kwargs),
+            backbone=WideResNet50FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
@@ -1038,7 +1038,7 @@ class CpnWideResNet101FPN(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=WideResNet101FPN(in_channels, **backbone_kwargs),
+            backbone=WideResNet101FPN(in_channels, **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,
