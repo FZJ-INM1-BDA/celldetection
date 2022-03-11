@@ -5,6 +5,13 @@ cd.ops
    :members:
    :undoc-members:
 
+Drawing Operations
+------------------
+
+.. automodule:: celldetection.ops.draw
+   :members:
+   :undoc-members:
+
 Losses
 ------
 
