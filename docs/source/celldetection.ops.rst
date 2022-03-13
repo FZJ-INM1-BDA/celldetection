@@ -12,6 +12,13 @@ Drawing Operations
    :members:
    :undoc-members:
 
+Box Operations
+--------------
+
+.. automodule:: celldetection.ops.boxes
+   :members:
+   :undoc-members:
+
 Losses
 ------
 
