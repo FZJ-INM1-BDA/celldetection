@@ -19,7 +19,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
-           'iter_submodules', 'replace_module_', 'wrap_module_', 'to_h5', 'to_tiff']
+           'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff']
 
 
 class Dict(dict):
@@ -463,6 +463,23 @@ def replace_module_(module: nn.Module, class_or_tuple, substitute: Union[Type[nn
 def wrap_module_(module: nn.Module, class_or_tuple, wrapper, recursive=True, **kwargs):
     for handle, k, mod in iter_submodules(module, class_or_tuple, recursive=recursive):
         handle[k] = wrapper(handle[k], **kwargs)
+
+
+def spectral_norm_(module, class_or_tuple=nn.Conv2d, recursive=True, **kwargs):
+    """Spectral normalization.
+
+    Applies spectral normalization to parameters of all occurrences of ``class_or_tuple`` in the given module.
+
+    Note:
+        This is an inplace operation.
+
+    Args:
+        module: Module.
+        class_or_tuple: Class or tuple of classes whose parameters are to be normalized.
+        recursive: Whether to search for modules recursively.
+        **kwargs: Additional keyword arguments for ``torch.nn.utils.spectral_norm``.
+    """
+    wrap_module_(module, class_or_tuple, recursive=recursive, wrapper=nn.utils.spectral_norm, **kwargs)
 
 
 def get_device(module: Union[nn.Module, Tensor, torch.device]):
