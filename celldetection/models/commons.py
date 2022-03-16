@@ -193,7 +193,33 @@ class ReplayCache:
         return torch.stack([self.cache[i] for i in np.random.randint(0, len(self), num)], 0)
 
 
-class ResBlock(nn.Module):
+class _ResBlock(nn.Module):
+    def __init__(
+            self,
+            in_channels,
+            out_channels,
+            block,
+            activation='ReLU',
+            stride=1,
+            downsample=None,
+    ) -> None:
+        super().__init__()
+        downsample = downsample or ConvNorm
+        if in_channels != out_channels or stride != 1:
+            self.downsample = downsample(in_channels, out_channels, 1, stride=stride, bias=False, padding=0)
+        else:
+            self.downsample = nn.Identity()
+        self.block = block
+        self.activation = lookup_nn(activation)
+
+    def forward(self, x: Tensor) -> Tensor:
+        identity = self.downsample(x)
+        out = self.block(x)
+        out += identity
+        return self.activation(out)
+
+
+class ResBlock(_ResBlock):
     def __init__(
             self,
             in_channels,
@@ -226,27 +252,18 @@ class ResBlock(nn.Module):
                 "option (B)").
             **kwargs: Keyword arguments for Conv2d layers.
         """
-        super().__init__()
-        downsample = downsample or ConvNorm
-        if in_channels != out_channels or stride != 1:
-            self.downsample = downsample(in_channels, out_channels, 1, stride=stride, bias=False, padding=0)
-        else:
-            self.downsample = nn.Identity()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False, stride=stride,
-                      **kwargs),
-            lookup_nn(norm_layer, out_channels),
-            lookup_nn(activation),
-            nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False, **kwargs),
-            lookup_nn(norm_layer, out_channels)
+        super().__init__(
+            in_channels, out_channels,
+            block=nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False,
+                          stride=stride, **kwargs),
+                lookup_nn(norm_layer, out_channels),
+                lookup_nn(activation),
+                nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False, **kwargs),
+                lookup_nn(norm_layer, out_channels)
+            ),
+            activation=activation, stride=stride, downsample=downsample
         )
-        self.activation = lookup_nn(activation)
-
-    def forward(self, x: Tensor) -> Tensor:
-        identity = self.downsample(x)
-        out = self.block(x)
-        out += identity
-        return self.activation(out)
 
 
 class NoAmp(nn.Module):
