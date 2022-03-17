@@ -6,7 +6,7 @@ from ..util.util import gaussian_kernel, lookup_nn, tensor_to
 from typing import Type
 
 __all__ = ['TwoConvNormRelu', 'ScaledTanh', 'ScaledSigmoid', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm',
-           'ResBlock', 'NoAmp', 'ReadOut']
+           'ResBlock', 'NoAmp', 'ReadOut', 'BottleneckBlock']
 
 
 class GaussianBlur(nn.Conv2d):
@@ -237,7 +237,11 @@ class ResBlock(_ResBlock):
         Typical ResBlock with variable kernel size and an included mapping of the identity to correct dimensions.
 
         References:
-            https://arxiv.org/abs/1512.03385
+            - https://doi.org/10.1109/CVPR.2016.90
+
+        Notes:
+            - Similar to ``torchvision.models.resnet.BasicBlock``, with different interface and defaults.
+            - Consistent with standard signature ``in_channels, out_channels, kernel_size, ...``.
 
         Args:
             in_channels: Input channels.
@@ -260,6 +264,72 @@ class ResBlock(_ResBlock):
                 lookup_nn(norm_layer, out_channels),
                 lookup_nn(activation),
                 nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False, **kwargs),
+                lookup_nn(norm_layer, out_channels)
+            ),
+            activation=activation, stride=stride, downsample=downsample
+        )
+
+
+class BottleneckBlock(_ResBlock):
+    def __init__(
+            self,
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            padding=1,
+            mid_channels=None,
+            compression=4,
+            base_channels=64,
+            norm_layer='BatchNorm2d',
+            activation='ReLU',
+            stride=1,
+            downsample=None,
+            **kwargs
+    ) -> None:
+        """Bottleneck Block.
+
+        Typical Bottleneck Block with variable kernel size and an included mapping of the identity to correct
+        dimensions.
+
+        References:
+            - https://doi.org/10.1109/CVPR.2016.90
+            - https://catalog.ngc.nvidia.com/orgs/nvidia/resources/resnet_50_v1_5_for_pytorch
+
+        Notes:
+            - Similar to ``torchvision.models.resnet.Bottleneck``, with different interface and defaults.
+            - Consistent with standard signature ``in_channels, out_channels, kernel_size, ...``.
+            - Stride handled in bottleneck.
+
+        Args:
+            in_channels: Input channels.
+            out_channels: Output channels.
+            kernel_size: Kernel size.
+            padding: Padding.
+            mid_channels:
+            compression: Compression rate of the bottleneck. The default 4 compresses 256 channels to 64=256/4.
+            base_channels: Minimum number of ``mid_channels``.
+            norm_layer: Norm layer.
+            activation: Activation.
+            stride: Stride.
+            downsample: Downsample module that maps identity to correct dimensions. Default is an optionally strided
+                1x1 Conv2d with BatchNorm2d, as per He et al. (2015) (`3.3. Network Architectures`, `Residual Network`,
+                "option (B)").
+            **kwargs: Keyword arguments for Conv2d layers.
+        """
+        mid_channels = mid_channels or np.max([base_channels, out_channels // compression, in_channels // compression])
+        super().__init__(
+            in_channels, out_channels,
+            block=nn.Sequential(
+                nn.Conv2d(in_channels, mid_channels, kernel_size=1, padding=0, bias=False, **kwargs),
+                lookup_nn(norm_layer, mid_channels),
+                lookup_nn(activation),
+
+                nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding, bias=False,
+                          stride=stride, **kwargs),
+                lookup_nn(norm_layer, mid_channels),
+                lookup_nn(activation),
+
+                nn.Conv2d(mid_channels, out_channels, kernel_size=1, padding=0, bias=False, **kwargs),
                 lookup_nn(norm_layer, out_channels)
             ),
             activation=activation, stride=stride, downsample=downsample
