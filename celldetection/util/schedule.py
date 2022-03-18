@@ -7,8 +7,7 @@ from torch import optim
 from typing import Callable, Union
 import albumentations as A
 
-
-__all__ = ['Config', 'conf2optimizer', 'conf2scheduler', 'conf2augmentation', 'conf2tweaks_', 'conf2call']
+__all__ = ['Config', 'Schedule', 'conf2optimizer', 'conf2scheduler', 'conf2augmentation', 'conf2tweaks_', 'conf2call']
 
 
 def conf2call(settings: Union[dict, str], origin, **kwargs):
@@ -204,3 +203,214 @@ class Config(Dict):
 
     def __setstate__(self, d: dict):
         self.update(d)
+
+
+class Schedule:
+    def __init__(self, **kwargs):
+        """Schedule.
+
+        Provides an easy interface to the cross product of different configurations.
+
+        Examples:
+            >>> s = cd.Schedule(
+            ...     lr=(0.001, 0.0005),
+            ...     net=('resnet34', 'resnet50'),
+            ...     epochs=100
+            ... )
+            ... len(s)
+            4
+            >>> s[:]
+            [Config(
+              (epochs): 100
+              (lr): 0.001
+              (net): 'resnet34'
+            ), Config(
+              (epochs): 100
+              (lr): 0.001
+              (net): 'resnet50'
+            ), Config(
+              (epochs): 100
+              (lr): 0.0005
+              (net): 'resnet34'
+            ), Config(
+              (epochs): 100
+              (lr): 0.0005
+              (net): 'resnet50'
+            )]
+            >>> for config in s:
+            ...     print(config.lr, config.net, config.epoch)
+            0.001 resnet34 100
+            0.001 resnet50 100
+            0.0005 resnet34 100
+            0.0005 resnet50 100
+
+        Args:
+            **kwargs: Configurations. Possible item layouts:
+                ``<name>: <static setting>``,
+                ``<name>: (<option1>, ..., <optionN>)``,
+                ``<name>: [<option1>, ..., <optionN>]``,
+                ``<name>: {<option1>, ..., <optionN>}``.
+        """
+        self.values = OrderedDict({})
+        self.conditions = []
+        self.conditioned_values = []
+        self.add(kwargs)
+        self._iter_conf = None
+        self._iter_i = None
+
+    def add(self, d: dict = None, conditions: dict = None, **kwargs):
+        """Add setting to schedule.
+
+        Examples:
+            >>> schedule = cd.Schedule(model=('resnet18', 'resnet50'), batch_size=8)
+            ... schedule.add(batch_size=(16, 32), conditions={'model': 'resnet18'})
+            ... schedule[:]
+            [Config(
+               (batch_size): 16,
+               (model): resnet18,
+             ),
+             Config(
+               (batch_size): 32,
+               (model): resnet18,
+             ),
+             Config(
+               (batch_size): 8,
+               (model): resnet50,
+             )]
+
+            >>> schedule = cd.Schedule(model=('resnet18', 'resnet50'))
+            ... schedule.add(batch_size=(16, 32), conditions={'model': 'resnet18'})
+            ... schedule[:]
+            [Config(
+               (model): resnet18,
+               (batch_size): 16,
+             ),
+             Config(
+               (model): resnet18,
+               (batch_size): 32,
+             ),
+             Config(
+               (model): resnet50,
+             )]
+
+            >>> schedule = cd.Schedule(model=('resnet18', 'resnet50'), batch_size=(64, 128, 256))
+            ... schedule.add(batch_size=(16, 32), conditions={'model': 'resnet50'})
+            ... schedule[:]
+            [Config(
+               (batch_size): 64
+               (model): 'resnet18'
+             ),
+             Config(
+               (batch_size): 16
+               (model): 'resnet50'
+             ),
+             Config(
+               (batch_size): 32
+               (model): 'resnet50'
+             ),
+             Config(
+               (batch_size): 128
+               (model): 'resnet18'
+             ),
+             Config(
+               (batch_size): 256
+               (model): 'resnet18'
+             )]
+
+        Args:
+            d: Dictionary of settings.
+            conditions: If set, added settings are only applied if conditions are met.
+                Note: Conditioned settings replace/override existing settings if conditions are met.
+            **kwargs: Configurations. Possible item layouts:
+                <name>: <static setting>
+                <name>: (<option1>, ..., <optionN>)
+                <name>: [<option1>, ..., <optionN>]
+                <name>: {<option1>, ..., <optionN>}
+
+        """
+        if d is not None:
+            if isinstance(d, Schedule):
+                d = d.to_dict()
+            else:
+                assert isinstance(d, dict)
+            d.update(kwargs)
+            kwargs = d
+        if conditions is None:
+            dst = self.values
+        else:
+            self.conditions.append(OrderedDict(conditions))
+            dst = OrderedDict()
+            self.conditioned_values.append(dst)
+        for key, val in kwargs.items():
+            if not isinstance(val, (tuple, list, set)):
+                val = (val,)
+            dst[key] = val
+
+    @staticmethod
+    def _product(v):
+        keys = list(v.keys())
+        keys.sort()
+        vals = list(product(*[v[k] for k in keys]))
+        return [{k: v for k, v in zip(keys, va)} for va in vals]
+
+    @property
+    def product(self):
+        initials = finals = self._product(self.values)
+        for conditions, conditioned_values in zip(self.conditions, self.conditioned_values):
+            finals = []
+            for i in initials:
+                if all(((i[ck] in conditions[ck]) if isinstance(conditions[ck], tuple) else (conditions[ck] == i[ck])
+                        for ck in conditions.keys())):
+                    extra = self._product(conditioned_values)
+                    for j in extra:
+                        extra_i = dict(i)
+                        extra_i.update(j)
+                        finals.append(extra_i)
+                else:
+                    finals.append(i)
+            initials = finals
+        return finals
+
+    @property
+    def configs(self):
+        return list({c.hash(): c for c in [Config(**p) for p in self.product]}.values())
+
+    def __str__(self):
+        return Module.__repr__(Dict(_get_name=lambda: 'Schedule', extra_repr=lambda: '', _modules=dict(self.values)))
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __getitem__(self, item):
+        return self.configs[item]
+
+    def __len__(self):
+        return len(self.configs)
+
+    def to_json(self, filename):
+        with open(filename, 'w') as fp:
+            json.dump(self.values, fp)
+
+    def load(self, filename):
+        with open(filename, 'r') as fp:
+            self.values = json.load(fp)
+
+    def to_dict(self):
+        return dict(self.values)
+
+    def __eq__(self, other):
+        assert isinstance(other, Schedule)
+        return self.values.__eq__(other.to_dict())
+
+    def __iter__(self):
+        self._iter_conf = self.configs
+        self._iter_i = 0
+        return self
+
+    def __next__(self):
+        if self._iter_i < len(self._iter_conf):
+            res = self._iter_conf[self._iter_i]
+            self._iter_i += 1
+            return res
+        else:
+            raise StopIteration
