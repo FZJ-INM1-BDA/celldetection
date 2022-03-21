@@ -19,7 +19,8 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
-           'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff']
+           'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff',
+           'exponential_moving_average_']
 
 
 class Dict(dict):
@@ -771,3 +772,25 @@ def to_tiff(filename, image, mode='w', method='tile', bigtiff=True):
                                   'See: https://pytiff.readthedocs.io/en/master/quickstart.html')
     with Tiff(filename, mode, bigtiff=bigtiff) as handle:
         handle.write(image, method=method)
+
+
+def exponential_moving_average_(module_avg, module, alpha=.999, alpha_non_trainable=0.):
+    """Exponential moving average.
+
+    Update the variables of ``module_avg`` to be slightly closer to ``module``.
+
+    References:
+        - https://arxiv.org/pdf/1710.10196.pdf
+        - https://arxiv.org/pdf/2006.07733.pdf
+
+    Args:
+        module_avg: Average module. The parameters of this model are to be updated.
+        module: Other Module.
+        alpha: Fraction of trainable parameters of ``module_avg``; (1 - alpha) is fraction of trainable
+            parameters of ``module``.
+        alpha_non_trainable: Same as ``alpha``, but for non-trainable parameters.
+    """
+    with torch.no_grad():
+        for trainable, a in [(True, alpha), (False, alpha_non_trainable)]:
+            for avg, new in zip(_params(module_avg, trainable), _params(module, trainable)):
+                avg.data.mul_(a).add_(new.data, alpha=1 - a)
