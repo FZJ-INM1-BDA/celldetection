@@ -12,11 +12,25 @@ Datasets
    :members:
    :undoc-members:
 
+
+BBBC039
+*******
+
 .. automodule:: celldetection.data.datasets.bbbc039
    :members:
    :undoc-members:
 
+BBBC041
+*******
+
 .. automodule:: celldetection.data.datasets.bbbc041
+   :members:
+   :undoc-members:
+
+Synth
+*****
+
+.. automodule:: celldetection.data.datasets.synth
    :members:
    :undoc-members:
 

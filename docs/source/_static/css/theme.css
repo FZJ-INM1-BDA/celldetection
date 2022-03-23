@@ -4879,7 +4879,7 @@ html {
 }
 
 .wy-menu-vertical li.toctree-l2.current > a, .wy-menu-vertical li.toctree-l2.current li.toctree-l3 > a {
-    background: #c9c9c9
+    /*background: #c9c9c9*/
 }
 
 .wy-menu-vertical li.toctree-l2 button.toctree-expand {
@@ -6083,7 +6083,7 @@ span[id*=MathJax-Span] {
 
 
 /* Different headings */
-h1, h2, .sig-name, .sig-name span {
+h1, h2, h3, .sig-name, .sig-name span {
     color: var(--left-bar-bg);
 }
 
