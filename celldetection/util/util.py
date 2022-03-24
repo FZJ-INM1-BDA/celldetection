@@ -20,7 +20,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
            'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff',
-           'exponential_moving_average_']
+           'exponential_moving_average_', 'from_json', 'to_json']
 
 
 class Dict(dict):
@@ -794,3 +794,30 @@ def exponential_moving_average_(module_avg, module, alpha=.999, alpha_non_traina
         for trainable, a in [(True, alpha), (False, alpha_non_trainable)]:
             for avg, new in zip(_params(module_avg, trainable), _params(module, trainable)):
                 avg.data.mul_(a).add_(new.data, alpha=1 - a)
+
+
+def to_json(filename, obj, mode='w'):
+    """To JSON.
+
+    Dump ``obj`` to JSON file with name ``filename``.
+
+    Args:
+        filename: File name.
+        obj: Object.
+        mode: File mode.
+    """
+    with open(filename, mode) as fp:
+        json.dump(obj, fp)
+
+
+def from_json(filename):
+    """From JSON.
+
+    Load object from JSON file with name ``filename``.
+
+    Args:
+        filename: File name.
+    """
+    with open(filename, 'r') as fp:
+        v = json.load(fp)
+    return v
