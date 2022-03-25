@@ -783,6 +783,10 @@ def exponential_moving_average_(module_avg, module, alpha=.999, alpha_non_traina
         - https://arxiv.org/pdf/1710.10196.pdf
         - https://arxiv.org/pdf/2006.07733.pdf
 
+    Notes:
+        - Whether a parameter is trainable or not is checked on ``module``
+        - ``module_avg`` can be on different device and entirely frozen
+
     Args:
         module_avg: Average module. The parameters of this model are to be updated.
         module: Other Module.
@@ -790,10 +794,11 @@ def exponential_moving_average_(module_avg, module, alpha=.999, alpha_non_traina
             parameters of ``module``.
         alpha_non_trainable: Same as ``alpha``, but for non-trainable parameters.
     """
+    device = get_device(module_avg)
     with torch.no_grad():
-        for trainable, a in [(True, alpha), (False, alpha_non_trainable)]:
-            for avg, new in zip(_params(module_avg, trainable), _params(module, trainable)):
-                avg.data.mul_(a).add_(new.data, alpha=1 - a)
+        for avg, new in zip(_params(module_avg), _params(module)):
+            a = alpha if new.requires_grad else alpha_non_trainable
+            avg.data.mul_(a).add_(new.data.to(device), alpha=1 - a)
 
 
 def to_json(filename, obj, mode='w'):
