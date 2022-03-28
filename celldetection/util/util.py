@@ -774,7 +774,7 @@ def to_tiff(filename, image, mode='w', method='tile', bigtiff=True):
         handle.write(image, method=method)
 
 
-def exponential_moving_average_(module_avg, module, alpha=.999, alpha_non_trainable=0.):
+def exponential_moving_average_(module_avg, module, alpha=.999, alpha_non_trainable=0., buffers=True):
     """Exponential moving average.
 
     Update the variables of ``module_avg`` to be slightly closer to ``module``.
@@ -793,12 +793,16 @@ def exponential_moving_average_(module_avg, module, alpha=.999, alpha_non_traina
         alpha: Fraction of trainable parameters of ``module_avg``; (1 - alpha) is fraction of trainable
             parameters of ``module``.
         alpha_non_trainable: Same as ``alpha``, but for non-trainable parameters.
+        buffers: Whether to copy buffers from ``module`` to ``module_avg``.
     """
     device = get_device(module_avg)
     with torch.no_grad():
         for avg, new in zip(_params(module_avg), _params(module)):
             a = alpha if new.requires_grad else alpha_non_trainable
             avg.data.mul_(a).add_(new.data.to(device), alpha=1 - a)
+    if buffers:
+        for avg, new in zip(module_avg.buffers(), module.buffers()):
+            avg.copy_(new)
 
 
 def to_json(filename, obj, mode='w'):
