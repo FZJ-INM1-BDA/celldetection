@@ -3,7 +3,7 @@ from torch import Tensor
 import torch.nn.functional as F
 from typing import List
 
-__all__ = ['downsample_labels', 'padded_stack2d']
+__all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially']
 
 
 def downsample_labels(inputs, size: List[int]):
@@ -52,3 +52,23 @@ def padded_stack2d(*images, dim=0) -> Tensor:
     ts = tuple(max((i.shape[j] for i in images)) for j in range(-2, 0))
     images = [F.pad(i, [0, ts[1] - i.shape[-1], 0, ts[0] - i.shape[-2]]) for i in images]
     return torch.stack(images, dim=dim)
+
+
+def split_spatially(x, height, width=None):
+    """Split spatially.
+
+    Splits spatial dimensions of Tensor ``x`` into patches of size ``(height, width)`` and adds the patches
+    to the batch dimension.
+
+    Args:
+        x: Input Tensor[n, c, h, w].
+        height: Patch height.
+        width: Patch width.
+
+    Returns:
+        Tensor[n * h//height * w//width, c, height, width].
+    """
+    width = width or height
+    n, c, h, w = x.shape
+    h_, w_ = h // height, w // width
+    return x.view(n, c, h_, height, w_, width).permute(0, 2, 4, 1, 3, 5).reshape(-1, c, height, width)
