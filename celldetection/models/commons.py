@@ -3,10 +3,11 @@ import torch
 import torch.nn as nn
 from torch import Tensor, tanh, no_grad, as_tensor, sigmoid
 from ..util.util import gaussian_kernel, lookup_nn, tensor_to
-from typing import Type
+from ..ops.commons import split_spatially
+from typing import Type, Union
 
 __all__ = ['TwoConvNormRelu', 'ScaledTanh', 'ScaledSigmoid', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm',
-           'ResBlock', 'NoAmp', 'ReadOut', 'BottleneckBlock']
+           'ResBlock', 'NoAmp', 'ReadOut', 'BottleneckBlock', 'SpatialSplit']
 
 
 class GaussianBlur(nn.Conv2d):
@@ -398,3 +399,22 @@ class ReadOut(nn.Module):
     def forward(self, x):
         out = self.block(x)
         return self.activation(out)
+
+
+class SpatialSplit(nn.Module):
+    def __init__(self, height, width=None):
+        """Spatial split.
+
+        Splits spatial dimensions of input Tensor into patches of size ``(height, width)`` and adds the patches
+        to the batch dimension.
+
+        Args:
+            height: Patch height.
+            width: Patch width.
+        """
+        super().__init__()
+        self.height = height
+        self.width = width or height
+
+    def forward(self, x):
+        return split_spatially(x, self.height, self.width)
