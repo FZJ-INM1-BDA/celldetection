@@ -3,6 +3,8 @@ from matplotlib import patches
 import matplotlib.patheffects as path_effects
 import numpy as np
 import seaborn as sbn
+from torch import Tensor
+from ..util.util import asnumpy
 
 __all__ = ['imshow', 'plot_mask', 'plot_box', 'plot_text', 'quiver_plot', 'show_detection', 'save_fig', 'imshow_grid']
 
@@ -18,11 +20,11 @@ def imshow(image, figsize=None, **kw):
         figsize: Figure size. If specified, a new ``plt.figure(figsize=figsize)`` is created.
         **kw: Imshow keyword arguments.
 
-    Returns:
-
     """
     if figsize is not None:
         plt.figure(None, figsize)
+    if isinstance(image, Tensor):
+        image = asnumpy(image)
     if image.ndim == 3 and 1 in image.shape:
         if image.shape[-1] == 1:
             image = np.squeeze(image, -1)
