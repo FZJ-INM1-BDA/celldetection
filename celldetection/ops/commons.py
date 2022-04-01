@@ -3,7 +3,7 @@ from torch import Tensor
 import torch.nn.functional as F
 from typing import List
 
-__all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially']
+__all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially', 'minibatch_std_layer']
 
 
 def downsample_labels(inputs, size: List[int]):
@@ -72,3 +72,29 @@ def split_spatially(x, height, width=None):
     n, c, h, w = x.shape
     h_, w_ = h // height, w // width
     return x.view(n, c, h_, height, w_, width).permute(0, 2, 4, 1, 3, 5).reshape(-1, c, height, width)
+
+
+def minibatch_std_layer(x, channels=1, group_channels=None):
+    """Minibatch standard deviation layer.
+
+    The minibatch standard deviation layer first splits the batch dimension into slices of size ``group_channels``.
+    The channel dimension is split into ``channels`` slices. For the groups the standard deviation is calculated and
+    averaged over spatial dimensions and channel slice depth. The result is broadcasted to the spatial dimensions,
+    repeated for the batch dimension and then concatenated to the channel dimension of ``x``.
+
+    References:
+        - https://arxiv.org/pdf/1710.10196.pdf
+
+    Args:
+        x: Input Tensor[n, c, h, w].
+        channels: Number of averaged standard deviation channels.
+        group_channels: Number of channels per group. Default: batch size.
+
+    Returns:
+        Tensor[n, c + channels, h, w].
+    """
+    n, c, h, w = x.shape
+    gc = min(group_channels or n, n)
+    cc, g = c // channels, n // gc
+    y = x.view(gc, g, channels, cc, h, w)
+    return torch.cat([x, y.std(0, False).mean([2, 3, 4], True).squeeze(-1).repeat(gc, 1, h, w)], 1)
