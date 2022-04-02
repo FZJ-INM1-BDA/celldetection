@@ -74,7 +74,7 @@ def split_spatially(x, height, width=None):
     return x.view(n, c, h_, height, w_, width).permute(0, 2, 4, 1, 3, 5).reshape(-1, c, height, width)
 
 
-def minibatch_std_layer(x, channels=1, group_channels=None):
+def minibatch_std_layer(x, channels=1, group_channels=None, epsilon=1e-8):
     """Minibatch standard deviation layer.
 
     The minibatch standard deviation layer first splits the batch dimension into slices of size ``group_channels``.
@@ -89,6 +89,7 @@ def minibatch_std_layer(x, channels=1, group_channels=None):
         x: Input Tensor[n, c, h, w].
         channels: Number of averaged standard deviation channels.
         group_channels: Number of channels per group. Default: batch size.
+        epsilon: Epsilon.
 
     Returns:
         Tensor[n, c + channels, h, w].
@@ -97,4 +98,5 @@ def minibatch_std_layer(x, channels=1, group_channels=None):
     gc = min(group_channels or n, n)
     cc, g = c // channels, n // gc
     y = x.view(gc, g, channels, cc, h, w)
-    return torch.cat([x, y.std(0, False).mean([2, 3, 4], True).squeeze(-1).repeat(gc, 1, h, w)], 1)
+    y = y.var(0, False).add(epsilon).sqrt().mean([2, 3, 4], True).squeeze(-1).repeat(gc, 1, h, w)
+    return torch.cat([x, y], 1)
