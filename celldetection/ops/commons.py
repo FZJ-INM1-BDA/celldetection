@@ -3,7 +3,7 @@ from torch import Tensor
 import torch.nn.functional as F
 from typing import List
 
-__all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially', 'minibatch_std_layer']
+__all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially', 'minibatch_std_layer', 'strided_upsampling2d']
 
 
 def downsample_labels(inputs, size: List[int]):
@@ -100,3 +100,24 @@ def minibatch_std_layer(x, channels=1, group_channels=None, epsilon=1e-8):
     y = x.view(gc, g, channels, cc, h, w)
     y = y.var(0, False).add(epsilon).sqrt().mean([2, 3, 4], True).squeeze(-1).repeat(gc, 1, h, w)
     return torch.cat([x, y], 1)
+
+
+def strided_upsampling2d(x, factor=2, const=0):
+    """Strided upsampling.
+
+    Upsample by inserting rows and columns filled with ``constant``.
+
+    Args:
+        x: Tensor[n, c, h, w].
+        factor: Upsampling factor.
+        const: Constant used to fill inserted rows and columns.
+
+    Returns:
+        Tensor[n, c, h*factor, w*factor].
+    """
+    n, c, h, w = x.shape
+    x_ = torch.zeros((n, c, h * factor, w * factor), dtype=x.dtype, device=x.device)
+    if const != 0:
+        x_.fill_(const)
+    x_[..., ::factor, ::factor] = x
+    return x_
