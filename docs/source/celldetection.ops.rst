@@ -26,6 +26,13 @@ Losses
    :members:
    :undoc-members:
 
+Normalization
+-------------
+
+.. automodule:: celldetection.ops.normalization
+   :members:
+   :undoc-members:
+
 Common Operations
 -----------------
 
@@ -39,4 +46,3 @@ CPN Operations
 .. automodule:: celldetection.ops.cpn
    :members:
    :undoc-members:
-
