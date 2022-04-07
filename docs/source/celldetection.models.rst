@@ -46,3 +46,10 @@ Common Modules
 .. automodule:: celldetection.models.commons
    :members:
    :undoc-members:
+
+Normalization
+-------------
+
+.. automodule:: celldetection.models.normalization
+   :members:
+   :undoc-members:
