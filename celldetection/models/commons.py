@@ -3,11 +3,11 @@ import torch
 import torch.nn as nn
 from torch import Tensor, tanh, no_grad, as_tensor, sigmoid
 from ..util.util import gaussian_kernel, lookup_nn, tensor_to
-from ..ops.commons import split_spatially
-from typing import Type, Union
+from ..ops.commons import split_spatially, minibatch_std_layer
+from typing import Type
 
 __all__ = ['TwoConvNormRelu', 'ScaledTanh', 'ScaledSigmoid', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm',
-           'ResBlock', 'NoAmp', 'ReadOut', 'BottleneckBlock', 'SpatialSplit']
+           'ResBlock', 'NoAmp', 'ReadOut', 'BottleneckBlock', 'SpatialSplit', 'MinibatchStdLayer']
 
 
 class GaussianBlur(nn.Conv2d):
@@ -418,3 +418,32 @@ class SpatialSplit(nn.Module):
 
     def forward(self, x):
         return split_spatially(x, self.height, self.width)
+
+
+class MinibatchStdLayer(torch.nn.Module):
+    def __init__(self, channels=1, group_channels=None, epsilon=1e-8):
+        """Minibatch standard deviation layer.
+
+        The minibatch standard deviation layer first splits the batch dimension into slices of size ``group_channels``.
+        The channel dimension is split into ``channels`` slices. For the groups the standard deviation is calculated and
+        averaged over spatial dimensions and channel slice depth. The result is broadcasted to the spatial dimensions,
+        repeated for the batch dimension and then concatenated to the channel dimension of ``x``.
+
+        References:
+            - https://arxiv.org/pdf/1710.10196.pdf
+
+        Args:
+            channels: Number of averaged standard deviation channels.
+            group_channels: Number of channels per group. Default: batch size.
+            epsilon: Epsilon.
+        """
+        super().__init__()
+        self.channels = channels
+        self.group_channels = group_channels
+        self.epsilon = epsilon
+
+    def forward(self, x):
+        return minibatch_std_layer(x, self.channels, self.group_channels, epsilon=self.epsilon)
+
+    def extra_repr(self) -> str:
+        return f'channels={self.channels}, group_channels={self.group_channels}'
