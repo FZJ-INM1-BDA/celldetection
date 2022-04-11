@@ -1,25 +1,15 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor, tanh, no_grad, as_tensor, sigmoid
 from ..util.util import gaussian_kernel, lookup_nn, tensor_to
 from ..ops.commons import split_spatially, minibatch_std_layer
-from typing import Type
+from typing import Type, Union
+from torch.nn.common_types import _size_2_t
 
-__all__ = ['TwoConvNormRelu', 'ScaledTanh', 'ScaledSigmoid', 'GaussianBlur', 'ReplayCache', 'ConvNormRelu', 'ConvNorm',
-           'ResBlock', 'NoAmp', 'ReadOut', 'BottleneckBlock', 'SpatialSplit', 'MinibatchStdLayer']
-
-
-class GaussianBlur(nn.Conv2d):
-    def __init__(self, in_channels, kernel_size=3, sigma=-1, padding='same', padding_mode='reflect',
-                 requires_grad=False, **kwargs):
-        self._kernel = gaussian_kernel(kernel_size, sigma)
-        super().__init__(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, padding=padding,
-                         padding_mode=padding_mode, bias=False, requires_grad=requires_grad, **kwargs)
-
-    def reset_parameters(self):
-        with no_grad():
-            as_tensor(self._kernel, dtype=self.weight.dtype)
+__all__ = ['TwoConvNormRelu', 'ScaledTanh', 'ScaledSigmoid', 'ReplayCache', 'ConvNormRelu', 'ConvNorm',
+           'ResBlock', 'NoAmp', 'ReadOut', 'BottleneckBlock', 'SpatialSplit', 'MinibatchStdLayer', 'Filter2d']
 
 
 class ConvNorm(nn.Sequential):
@@ -447,3 +437,72 @@ class MinibatchStdLayer(torch.nn.Module):
 
     def extra_repr(self) -> str:
         return f'channels={self.channels}, group_channels={self.group_channels}'
+
+
+class Filter2d(nn.Conv2d):
+    def __init__(
+            self,
+            in_channels: int,
+            kernel,
+            stride: _size_2_t = 1,
+            padding: Union[str, _size_2_t] = 0,
+            dilation: _size_2_t = 1,
+            padding_mode: str = 'zeros',
+            device=None,
+            dtype=None,
+            odd_padding=True,
+            trainable=True
+    ) -> None:
+        """Filter 2d.
+
+        Applies a 2d filter to all channels of input.
+
+        Examples:
+            >>> sobel = torch.as_tensor([
+            ...     [1, 0, -1],
+            ...     [2, 0, -2],
+            ...     [1, 0, -1],
+            ... ], dtype=torch.float32)
+            ... sobel_layer = Filter2d(in_channels=3, kernel=sobel, padding=1, trainable=False)
+            ... sobel_layer
+            (Filter2d(3, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), groups=3, bias=False),
+             tensor([[ 1.,  0., -1.],
+                     [ 2.,  0., -2.],
+                     [ 1.,  0., -1.]]))
+
+        Args:
+            in_channels: Number of input channels.
+            kernel: Filter matrix.
+            stride: Stride.
+            padding: Padding.
+            dilation: Spacing between kernel elements.
+            padding_mode: One of ``'zeros'``, ``'reflect'``, ``'replicate'`` or ``'circular'``. Default: ``'zeros'``.
+            device: Device.
+            dtype: Data type.
+            odd_padding: Whether to apply one-sided padding to account for even kernel sizes.
+            trainable: Whether the kernel should be trainable.
+        """
+        self._padding_mode = padding_mode.replace('zeros', 'constant')  # for F.pad
+        kernel_size = len(kernel)
+        self.pad = [0, 1, 0, 1] if (odd_padding and kernel_size % 2 == 0) else None
+        self._kernel, self._shape, self._trainable = kernel, None, trainable
+        super().__init__(in_channels=in_channels, out_channels=in_channels, kernel_size=(kernel_size, kernel_size),
+                         stride=stride, padding=padding, dilation=dilation, groups=in_channels, bias=False,
+                         padding_mode=padding_mode, device=device, dtype=dtype)
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.pad is not None:
+            x = F.pad(x, self.pad, mode=self._padding_mode)
+        x = self._conv_forward(x, self.weight.broadcast_to(self._shape), self.bias)
+        return x
+
+    def reset_parameters(self):
+        self._shape = self.weight.shape
+        with torch.no_grad():
+            if self._trainable:
+                self.weight = nn.Parameter(self._kernel)
+            else:
+                del self.weight
+                self.register_buffer('weight', self._kernel)
+            if self.bias is not None:
+                self.bias.data.zero_()
