@@ -9,3 +9,4 @@ from .fpn import *
 from .inference import *
 from .mobilenetv3 import *
 from .normalization import *
+from .filters import *

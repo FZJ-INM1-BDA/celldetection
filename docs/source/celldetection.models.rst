@@ -47,6 +47,13 @@ Common Modules
    :members:
    :undoc-members:
 
+Filters
+-------
+
+.. automodule:: celldetection.models.filters
+   :members:
+   :undoc-members:
+
 Normalization
 -------------
 
