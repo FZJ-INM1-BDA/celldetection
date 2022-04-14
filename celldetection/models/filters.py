@@ -6,7 +6,7 @@ from torch import Tensor
 from typing import Union
 from torch.nn.common_types import _size_2_t
 
-__all__ = ['Filter2d']
+__all__ = ['Filter2d', 'PascalFilter2d']
 
 
 class Filter2d(nn.Conv2d):
@@ -78,3 +78,57 @@ class Filter2d(nn.Conv2d):
                 self.register_buffer('weight', kernel)
             if self.bias is not None:
                 self.bias.data.zero_()
+
+
+class PascalFilter2d(Filter2d):
+    def __init__(
+            self,
+            in_channels: int,
+            kernel_size,
+            stride: _size_2_t = 1,
+            padding: Union[str, _size_2_t] = 0,
+            dilation: _size_2_t = 1,
+            padding_mode: str = 'zeros',
+            device=None,
+            dtype=None,
+            odd_padding=True,
+            trainable=False,
+            normalize=True
+    ) -> None:
+        """Pascal Filter 2d.
+
+        Applies a 2d pascal filter to all channels of input.
+
+        References:
+            - https://en.wikipedia.org/wiki/Pascal%27s_triangle
+
+        Args:
+            in_channels: Number of input channels.
+            kernel_size: Kernel size.
+            stride: Stride.
+            padding: Padding.
+            dilation: Spacing between kernel elements.
+            padding_mode: One of ``'zeros'``, ``'reflect'``, ``'replicate'`` or ``'circular'``. Default: ``'zeros'``.
+            device: Device.
+            dtype: Data type.
+            odd_padding: Whether to apply one-sided padding to account for even kernel sizes.
+            trainable: Whether the kernel should be trainable.
+            normalize: Whether to normalize the kernel to retain magnitude.
+        """
+        super().__init__(in_channels=in_channels, kernel=self.get_kernel2d(kernel_size, normalize),
+                         stride=stride, padding=padding, dilation=dilation, odd_padding=odd_padding,
+                         trainable=trainable, padding_mode=padding_mode, device=device, dtype=dtype)
+
+    @staticmethod
+    def get_kernel1d(kernel_size, normalize=True):
+        triangle = []
+        for k in range(1, kernel_size + 1):
+            triangle.append(np.ones(k))
+            for n in range(k // 2):
+                triangle[-1][[n + 1, -n - 2]] = triangle[-2][n:n + 2].sum()
+        return triangle[-1] / (triangle[-1].sum() if normalize else 1)
+
+    @staticmethod
+    def get_kernel2d(kernel_size, normalize=True):
+        k = PascalFilter2d.get_kernel1d(kernel_size, normalize)
+        return torch.as_tensor(np.outer(k, k))
