@@ -5,8 +5,9 @@ import torch.nn.functional as F
 from torch import Tensor
 from typing import Union
 from torch.nn.common_types import _size_2_t
+from ..ops.commons import strided_upsampling2d
 
-__all__ = ['Filter2d', 'PascalFilter2d', 'ScharrFilter2d', 'SobelFilter2d', 'BoxFilter2d']
+__all__ = ['Filter2d', 'PascalFilter2d', 'ScharrFilter2d', 'SobelFilter2d', 'BoxFilter2d', 'UpFilter2d']
 
 
 class Filter2d(nn.Conv2d):
@@ -269,3 +270,28 @@ class BoxFilter2d(Filter2d):
     @staticmethod
     def get_kernel2d(kernel_size, normalize=True):
         return torch.ones((kernel_size, kernel_size)) / (kernel_size ** 2 if normalize else 1)
+
+
+class UpFilter2d(nn.Module):
+    def __init__(
+            self,
+            module,
+            scale_factor: int = 2,
+    ) -> None:
+        """Upsample Filter 2d.
+
+        This Module performs the upsampling step of a typical image pyramid.
+        First, it upsamples the input Tensor by injecting zeros as columns and rows, then it applies the given
+        ``module``, which could be for example a ``cd.models.PascalFilter2d``.
+
+        Args:
+            module: Filter module.
+            scale_factor: Scale factor.
+        """
+        super().__init__()
+        self.scale_factor = scale_factor
+        self.filter = module
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = strided_upsampling2d(x, self.scale_factor)
+        return self.filter(x)
