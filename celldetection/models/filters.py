@@ -7,7 +7,8 @@ from typing import Union
 from torch.nn.common_types import _size_2_t
 from ..ops.commons import strided_upsampling2d
 
-__all__ = ['Filter2d', 'PascalFilter2d', 'ScharrFilter2d', 'SobelFilter2d', 'BoxFilter2d', 'UpFilter2d']
+__all__ = ['Filter2d', 'PascalFilter2d', 'ScharrFilter2d', 'SobelFilter2d', 'BoxFilter2d', 'UpFilter2d',
+           'LaplaceFilter2d']
 
 
 class Filter2d(nn.Conv2d):
@@ -270,6 +271,60 @@ class BoxFilter2d(Filter2d):
     @staticmethod
     def get_kernel2d(kernel_size, normalize=True):
         return torch.ones((kernel_size, kernel_size)) / (kernel_size ** 2 if normalize else 1)
+
+
+class LaplaceFilter2d(Filter2d):
+    def __init__(
+            self,
+            in_channels: int,
+            stride: _size_2_t = 1,
+            padding: Union[str, _size_2_t] = 0,
+            dilation: _size_2_t = 1,
+            padding_mode: str = 'zeros',
+            device=None,
+            dtype=None,
+            odd_padding=True,
+            trainable=False,
+            diagonal=False
+    ) -> None:
+        """Laplace Filter 2d.
+
+        Applies the 3x3 Laplace operator.
+
+        References:
+            - https://en.wikipedia.org/wiki/Discrete_Laplace_operator
+
+        Args:
+            in_channels: Number of input channels.
+            stride: Stride.
+            padding: Padding.
+            dilation: Spacing between kernel elements.
+            padding_mode: One of ``'zeros'``, ``'reflect'``, ``'replicate'`` or ``'circular'``. Default: ``'zeros'``.
+            device: Device.
+            dtype: Data type.
+            odd_padding: Whether to apply one-sided padding to account for even kernel sizes.
+            trainable: Whether the kernel should be trainable.
+            diagonal: Whether to use a kernel that includes diagonals.
+        """
+        super().__init__(in_channels=in_channels, kernel=self.get_kernel2d(diagonal),
+                         stride=stride, padding=padding, dilation=dilation, odd_padding=odd_padding,
+                         trainable=trainable, padding_mode=padding_mode, device=device, dtype=dtype)
+
+    @staticmethod
+    def get_kernel2d(diagonal=False):
+        if diagonal:
+            laplace = torch.as_tensor([
+                [1, 1, 1],
+                [1, -8, 1],
+                [1, 1, 1.],
+            ])
+        else:
+            laplace = torch.as_tensor([
+                [0, 1, 0],
+                [1, -4, 1],
+                [0, 1, 0.],
+            ])
+        return laplace
 
 
 class UpFilter2d(nn.Module):
