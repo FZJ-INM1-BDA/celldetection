@@ -431,7 +431,7 @@ def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, recursive=
 
 
 def replace_module_(module: nn.Module, class_or_tuple, substitute: Union[Type[nn.Module], nn.Module], recursive=True,
-                    inherit_attr: list = None, **kwargs):
+                    inherit_attr: Union[list, str, dict] = None, **kwargs):
     """Replace module.
 
     Replace all occurrences of `class_or_tuple` in `module` with `substitute`.
@@ -443,22 +443,35 @@ def replace_module_(module: nn.Module, class_or_tuple, substitute: Union[Type[nn
         >>> # Replace all BatchNorm layers with InstanceNorm and inherit `num_features` attribute
         ... cd.replace_module_(network, nn.BatchNorm2d, nn.InstanceNorm2d, inherit_attr=['num_features'])
 
+        >>> # Replace all BatchNorm layers with GroupNorm and inherit `num_features` attribute
+        ... cd.replace_module_(network, nn.BatchNorm2d, nn.GroupNorm, num_groups=32,
+        ...                    inherit_attr={'num_channels': 'num_features'})
+
     Args:
         module: Module.
         class_or_tuple: Class or tuple of classes that are to be replaced.
         substitute: Substitute class or object.
         recursive: Whether to replace modules recursively.
-        inherit_attr: Attributes to be inherited. List of attribute names. Attribute values are retrieved from replaced
-            module and passed to substitute constructor.
+        inherit_attr: Attributes to be inherited. String, list or dict of attribute names.
+            Attribute values are retrieved from replaced module and passed to substitute constructor.
+            Formats:
+            ``'attr_name'``,
+            ``['attr_name0', 'attr_name1', ...]``,
+            ``{'substitute_kw0': 'attr_name0', ...}``
         **kwargs: Keyword arguments passed to substitute constructor if it is a class.
-
     """
     for handle, k, mod in iter_submodules(module, class_or_tuple, recursive=recursive):
         if isinstance(substitute, nn.Module):
             handle[k] = substitute
         else:
-            inherit_attr = inherit_attr or []
-            handle[k] = substitute(**kwargs, **{k: mod.__dict__[k] for k in inherit_attr})
+            kw = {}
+            if isinstance(inherit_attr, str):
+                inherit_attr = [inherit_attr]
+            if isinstance(inherit_attr, list):
+                kw = {k: mod.__dict__[k] for k in inherit_attr}
+            elif isinstance(inherit_attr, dict):
+                kw = {k: mod.__dict__[v] for k, v in inherit_attr.items()}
+            handle[k] = substitute(**kwargs, **kw)
 
 
 def wrap_module_(module: nn.Module, class_or_tuple, wrapper, recursive=True, **kwargs):
