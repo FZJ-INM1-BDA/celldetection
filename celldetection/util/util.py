@@ -506,7 +506,7 @@ def wrap_module_(module: nn.Module, class_or_tuple, wrapper, recursive=True, **k
         handle[k] = wrapper(handle[k], **kwargs)
 
 
-def spectral_norm_(module, class_or_tuple=nn.Conv2d, recursive=True, **kwargs):
+def spectral_norm_(module, class_or_tuple=nn.Conv2d, recursive=True, name='weight', **kwargs):
     """Spectral normalization.
 
     Applies spectral normalization to parameters of all occurrences of ``class_or_tuple`` in the given module.
@@ -514,13 +514,25 @@ def spectral_norm_(module, class_or_tuple=nn.Conv2d, recursive=True, **kwargs):
     Note:
         This is an inplace operation.
 
+    References:
+        - https://arxiv.org/pdf/1802.05957.pdf
+
     Args:
         module: Module.
         class_or_tuple: Class or tuple of classes whose parameters are to be normalized.
         recursive: Whether to search for modules recursively.
+        name: Name of weight parameter.
         **kwargs: Additional keyword arguments for ``torch.nn.utils.spectral_norm``.
     """
-    wrap_module_(module, class_or_tuple, recursive=recursive, wrapper=nn.utils.spectral_norm, **kwargs)
+
+    def extra_repr(self):
+        if 'torch.nn.utils.spectral_norm.SpectralNorm' in str(list(self._forward_pre_hooks.values())):
+            return 'spectral_norm=True'
+
+    for handle, k, mod in iter_submodules(module, class_or_tuple, recursive=recursive):
+        if mod._parameters.get(name) is not None:
+            handle[k] = nn.utils.spectral_norm(handle[k], name=name, **kwargs)
+            inject_extra_repr_(handle[k], 'spectral_norm', extra_repr)
 
 
 def weight_norm_(module, class_or_tuple=nn.Conv2d, recursive=True, name='weight', **kwargs):
@@ -541,21 +553,15 @@ def weight_norm_(module, class_or_tuple=nn.Conv2d, recursive=True, name='weight'
         name: Name of weight parameter.
         **kwargs: Additional keyword arguments for ``torch.nn.utils.weight_norm``.
     """
+
+    def extra_repr(self):
+        if 'torch.nn.utils.weight_norm.WeightNorm' in str(list(self._forward_pre_hooks.values())):
+            return 'weight_norm=True'
+
     for handle, k, mod in iter_submodules(module, class_or_tuple, recursive=recursive):
         if mod._parameters.get(name) is not None:
             handle[k] = nn.utils.weight_norm(handle[k], name=name, **kwargs)
-
-            def extra_repr(_mod=handle[k]):
-                s = _mod._extra_repr()
-                if s is None:
-                    s = ''
-                if len(s) > 0:
-                    s += ', '
-                s += 'weight_norm=True'
-                return s
-
-            handle[k]._extra_repr = handle[k].extra_repr
-            handle[k].extra_repr = extra_repr
+            inject_extra_repr_(handle[k], 'weight_norm', extra_repr)
 
 
 def get_device(module: Union[nn.Module, Tensor, torch.device]):
