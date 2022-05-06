@@ -20,7 +20,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
            'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff',
-           'exponential_moving_average_', 'from_json', 'to_json', 'weight_norm_']
+           'exponential_moving_average_', 'from_json', 'to_json', 'weight_norm_', 'inject_extra_repr_']
 
 
 class Dict(dict):
@@ -472,6 +472,33 @@ def replace_module_(module: nn.Module, class_or_tuple, substitute: Union[Type[nn
             elif isinstance(inherit_attr, dict):
                 kw = {k: mod.__dict__[v] for k, v in inherit_attr.items()}
             handle[k] = substitute(**kwargs, **kw)
+
+
+def inject_extra_repr_(module, name, fn):
+    """Inject extra representation.
+
+    Injects additional ``extra_repr`` function to ``module``.
+    This can be helpful to indicate presence of hooks.
+
+    Note:
+        This is an inplace operation.
+
+    Args:
+        module: Module.
+        name: Name of the injected function (only used to avoid duplicate injection).
+        fn: Callback function.
+
+    """
+
+    def extra_repr(self=module):
+        vals = [self.extra_repr_orig()] + list(f(self) for f in self.extra_repr_funcs.values())
+        return ', '.join([v for v in vals if v])
+
+    if not hasattr(module, 'extra_repr_orig'):
+        module.extra_repr_orig = module.extra_repr
+        module.extra_repr_funcs = {}
+        module.extra_repr = extra_repr
+    module.extra_repr_funcs[name] = fn
 
 
 def wrap_module_(module: nn.Module, class_or_tuple, wrapper, recursive=True, **kwargs):
