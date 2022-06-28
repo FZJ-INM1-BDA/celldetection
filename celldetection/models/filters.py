@@ -8,7 +8,7 @@ from torch.nn.common_types import _size_2_t
 from ..ops.commons import strided_upsampling2d
 
 __all__ = ['Filter2d', 'PascalFilter2d', 'ScharrFilter2d', 'SobelFilter2d', 'BoxFilter2d', 'UpFilter2d',
-           'LaplaceFilter2d']
+           'LaplaceFilter2d', 'EdgeFilter2d']
 
 
 class Filter2d(nn.Conv2d):
@@ -350,3 +350,48 @@ class UpFilter2d(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         x = strided_upsampling2d(x, self.scale_factor)
         return self.filter(x)
+
+
+class EdgeFilter2d(nn.Module):
+    def __init__(
+            self,
+            in_channels: int,
+            stride: _size_2_t = 1,
+            padding: Union[str, _size_2_t] = 1,
+            dilation: _size_2_t = 1,
+            padding_mode: str = 'replicate',
+            device=None,
+            dtype=None,
+            magnitude=True,
+            trainable=False,
+            **kwargs
+    ):
+        """Edge Filter 2d.
+
+        Find edges in an image using the Sobel filter.
+
+        Args:
+            in_channels: Number of input channels.
+            stride: Stride.
+            padding: Padding. Default: 1.
+            dilation: Spacing between kernel elements.
+            padding_mode: One of ``'zeros'``, ``'reflect'``, ``'replicate'`` or ``'circular'``.
+                Default: ``'replicate'``.
+            device: Device.
+            dtype: Data type.
+            trainable: Whether the kernel should be trainable.
+            magnitude: Whether to compute the magnitude image.
+            **kwargs: Additional keyword arguments for ``cd.models.Filter2d``.
+        """
+        super().__init__()
+        self.axis0 = Filter2d(in_channels, SobelFilter2d.get_kernel2d(False) / 4,
+                              stride=stride, dilation=dilation, device=device, dtype=dtype, trainable=trainable,
+                              padding=padding, padding_mode=padding_mode, **kwargs)
+        self.axis1 = Filter2d(in_channels, SobelFilter2d.get_kernel2d(True) / 4,
+                              stride=stride, dilation=dilation, device=device, dtype=dtype, trainable=trainable,
+                              padding=padding, padding_mode=padding_mode, **kwargs)
+        self.magnitude = magnitude
+
+    def forward(self, x):
+        exp = int(self.magnitude) + 1
+        return ((self.axis0(x) ** exp + self.axis1(x) ** exp) ** (1 / exp)) / np.sqrt(exp)
