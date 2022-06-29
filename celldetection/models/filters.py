@@ -5,10 +5,11 @@ import torch.nn.functional as F
 from torch import Tensor
 from typing import Union
 from torch.nn.common_types import _size_2_t
+from ..util.util import gaussian_kernel
 from ..ops.commons import strided_upsampling2d
 
 __all__ = ['Filter2d', 'PascalFilter2d', 'ScharrFilter2d', 'SobelFilter2d', 'BoxFilter2d', 'UpFilter2d',
-           'LaplaceFilter2d', 'EdgeFilter2d']
+           'LaplaceFilter2d', 'EdgeFilter2d', 'GaussianFilter2d']
 
 
 class Filter2d(nn.Conv2d):
@@ -233,6 +234,46 @@ class SobelFilter2d(Filter2d):
         if transpose:
             sobel = sobel.T
         return sobel
+
+
+class GaussianFilter2d(Filter2d):
+    def __init__(
+            self,
+            in_channels: int,
+            kernel_size,
+            stride: _size_2_t = 1,
+            padding: Union[str, _size_2_t] = 0,
+            dilation: _size_2_t = 1,
+            padding_mode: str = 'zeros',
+            device=None,
+            dtype=None,
+            odd_padding=True,
+            trainable=False,
+            sigma=-1
+    ) -> None:
+        """Gaussian Filter 2d.
+
+        Args:
+            in_channels: Number of input channels.
+            kernel_size: Kernel size.
+            stride: Stride.
+            padding: Padding.
+            dilation: Spacing between kernel elements.
+            padding_mode: One of ``'zeros'``, ``'reflect'``, ``'replicate'`` or ``'circular'``. Default: ``'zeros'``.
+            device: Device.
+            dtype: Data type.
+            odd_padding: Whether to apply one-sided padding to account for even kernel sizes.
+            trainable: Whether the kernel should be trainable.
+            sigma: Gaussian standard deviation as float or tuple. If it is non-positive, it is computed from
+                kernel_size as ``sigma = 0.3*((kernel_size-1)*0.5 - 1) + 0.8``.
+        """
+        super().__init__(in_channels=in_channels, kernel=self.get_kernel2d(kernel_size, sigma),
+                         stride=stride, padding=padding, dilation=dilation, odd_padding=odd_padding,
+                         trainable=trainable, padding_mode=padding_mode, device=device, dtype=dtype)
+
+    @staticmethod
+    def get_kernel2d(kernel_size, sigma=-1):
+        return torch.as_tensor(gaussian_kernel(kernel_size, sigma))
 
 
 class BoxFilter2d(Filter2d):
