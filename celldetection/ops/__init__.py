@@ -6,3 +6,4 @@ from .loss import *
 from .draw import *
 from .boxes import *
 from .normalization import *
+from .features import *
