@@ -9,14 +9,19 @@ from .commons import ScaledTanh, ReadOut
 from ..ops.commons import downsample_labels
 from ..ops.cpn import rel_location2abs_location, fouriers2contours, scale_contours, scale_fourier, batched_box_nms, \
     order_weighting, resolve_refinement_buckets
-from .unet import U22, SlimU22, WideU22, ResUNet
+from .unet import U22, SlimU22, WideU22, ResUNet, ResNet50UNet, ResNet34UNet, ResNet18UNet, ResNet101UNet, ResNeXt50UNet
 from .fpn import ResNet34FPN, ResNet18FPN, ResNet50FPN, ResNet101FPN, ResNet152FPN, ResNeXt50FPN, \
     ResNeXt101FPN, ResNeXt152FPN, WideResNet50FPN, WideResNet101FPN, MobileNetV3LargeFPN, MobileNetV3SmallFPN
 
-__all__ = ['CPN', 'CpnSlimU22', 'CpnU22', 'CpnWideU22', 'CpnResNet18FPN', 'CpnResNet34FPN', 'CpnResNet50FPN',
-           'CpnResNet101FPN', 'CpnResNet152FPN', 'CpnResNeXt50FPN', 'CpnResNeXt101FPN', 'CpnResNeXt152FPN',
-           'CpnWideResNet50FPN', 'CpnWideResNet101FPN', 'CpnMobileNetV3LargeFPN', 'CpnMobileNetV3SmallFPN',
-           'CpnResUNet']
+__all__ = [
+    'CPN',
+    'CpnSlimU22', 'CpnU22', 'CpnWideU22',
+    'CpnResNet50UNet', 'CpnResNet34UNet', 'CpnResNet18UNet', 'CpnResNet101UNet', 'CpnResNeXt50UNet',
+    'CpnResNet18FPN', 'CpnResNet34FPN', 'CpnResNet50FPN',
+    'CpnResNet101FPN', 'CpnResNet152FPN', 'CpnResNeXt50FPN', 'CpnResNeXt101FPN', 'CpnResNeXt152FPN',
+    'CpnWideResNet50FPN', 'CpnWideResNet101FPN', 'CpnMobileNetV3LargeFPN', 'CpnMobileNetV3SmallFPN',
+    'CpnResUNet'
+]
 
 
 class CPNCore(nn.Module):
@@ -685,6 +690,196 @@ class CpnWideU22(CPN):
         'A Contour Proposal Network that uses a Wide U-Net as a backbone. '
         'Wide U-Net has 22 convolutions with more feature channels than normal U22.',
         'cd.models.WideU22'
+    )
+
+
+class CpnResNet101UNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        super().__init__(
+            backbone=ResNet101UNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with ResNet 101 U-Net backbone.',
+        'A Contour Proposal Network that uses a ResNet 101 U-Net as a backbone.',
+        'cd.models.ResNet101UNet'
+    )
+
+
+class CpnResNeXt50UNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        super().__init__(
+            backbone=ResNeXt50UNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with ResNeXt 50 U-Net backbone.',
+        'A Contour Proposal Network that uses a ResNeXt 50 U-Net as a backbone.',
+        'cd.models.ResNeXt50UNet'
+    )
+
+
+class CpnResNet50UNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        super().__init__(
+            backbone=ResNet50UNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with ResNet 50 U-Net backbone.',
+        'A Contour Proposal Network that uses a ResNet 50 U-Net as a backbone.',
+        'cd.models.ResNet50UNet'
+    )
+
+
+class CpnResNet34UNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        super().__init__(
+            backbone=ResNet34UNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with ResNet 34 U-Net backbone.',
+        'A Contour Proposal Network that uses a ResNet 34 U-Net as a backbone.',
+        'cd.models.ResNet34UNet'
+    )
+
+
+class CpnResNet18UNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .5,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        super().__init__(
+            backbone=ResNet18UNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with ResNet 18 U-Net backbone.',
+        'A Contour Proposal Network that uses a ResNet 18 U-Net as a backbone.',
+        'cd.models.ResNet18UNet'
     )
 
 
