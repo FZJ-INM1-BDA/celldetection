@@ -8,7 +8,7 @@ cd
 Visualization
 -------------
 
-.. automodule:: celldetection.vis
+.. automodule:: celldetection.visualization.cmaps
    :members:
    :undoc-members:
 
