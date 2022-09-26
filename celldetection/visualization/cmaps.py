@@ -2,11 +2,21 @@ from matplotlib.pyplot import cm
 import numpy as np
 from numpy import ndarray
 from typing import Union
+import cv2
 
-__all__ = ['label_cmap']
+__all__ = ['label_cmap', 'random_colors_hsv']
 
 
-def label_cmap(labels: ndarray, colors: Union[str, ndarray] = 'tab20c', zero_val: Union[float, tuple, list] = 0.,
+def random_colors_hsv(num, hue_range=(0, 180), saturation_range=(60, 133), value_range=(180, 256)):
+    colors, = cv2.cvtColor(np.stack((
+        np.random.randint(*hue_range, num),
+        np.random.randint(*saturation_range, num),
+        np.random.randint(*value_range, num),
+    ), 1).astype('uint8')[None], cv2.COLOR_HSV2RGB) / 255
+    return colors
+
+
+def label_cmap(labels: ndarray, colors: Union[str, ndarray] = 'rand', zero_val: Union[float, tuple, list] = 0.,
                rgba: bool = True, alpha: float = None):
     """Label colormap.
 
@@ -14,8 +24,8 @@ def label_cmap(labels: ndarray, colors: Union[str, ndarray] = 'tab20c', zero_val
 
     Args:
         labels: Label image. Typically Array[h, w].
-        colors: One of ['Pastel1', 'Pastel2', 'Paired', 'Accent', 'Dark2', 'Set1', 'Set2', 'Set3', 'tab10', 'tab20',
-            'tab20b', 'tab20c'] (see matplotlib's qualitative colormaps) or Array[n, c].
+        colors: Either 'rand' or one of ['Pastel1', 'Pastel2', 'Paired', 'Accent', 'Dark2', 'Set1', 'Set2', 'Set3',
+            'tab10', 'tab20', 'tab20b', 'tab20c'] (see matplotlib's qualitative colormaps) or Array[n, c].
         zero_val: Special color for the zero label (usually background).
         rgba: Whether to add an alpha channel to rgb colors.
         alpha: Specific alpha value.
@@ -23,9 +33,12 @@ def label_cmap(labels: ndarray, colors: Union[str, ndarray] = 'tab20c', zero_val
     Returns:
         Mapped labels. E.g. rgba mapping Array[h, w] -> Array[h, w, 4].
     """
-    assert np.integer(labels), 'Pass labels as an integer array.'
+    assert issubclass(labels.dtype.type, np.integer), 'Pass labels as an integer array.'
     if isinstance(colors, str):
-        colors = cm.get_cmap(colors).colors
+        if colors == 'rand':
+            colors = random_colors_hsv(min(9999, labels.max()))
+        else:
+            colors = cm.get_cmap(colors).colors
     if isinstance(colors, (tuple, list)):
         colors = np.array(colors)
     if rgba and colors.shape[1] == 3:
