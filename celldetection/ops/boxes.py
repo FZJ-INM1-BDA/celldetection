@@ -1,6 +1,8 @@
 import torch
 import torchvision as tv
 
+__all__ = ['nms', 'contours2boxes']
+
 
 def nms(boxes, scores, thresh=.5) -> torch.Tensor:
     """Non-maximum suppression.
@@ -29,3 +31,18 @@ def nms(boxes, scores, thresh=.5) -> torch.Tensor:
     torch.logical_not(vals, out=vals)
     torch.logical_or(vals, idx >= torch.arange(mask.shape[0], device=mask.device), out=vals)
     return indices[vals]
+
+
+def contours2boxes(contours, axis=-2):
+    """Contours to boxes.
+
+    Converts contours to bounding boxes in (x0, y0, x1, y1) format.
+
+    Args:
+        contours: Contours as Tensor[(..., )num_points, 2]
+        axis: The ``num_points`` axis.
+
+    Returns:
+
+    """
+    return torch.cat((contours.min(axis).values, contours.max(axis).values), axis)
