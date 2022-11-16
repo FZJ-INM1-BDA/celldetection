@@ -220,7 +220,7 @@ class CPN(nn.Module):
         self.order_weights = 1.
         if isinstance(order_weights, bool):
             if order_weights:
-                self.order_weights = nn.Parameter(order_weighting(self.order), requires_grad=False)
+                self.order_weights = order_weighting(self.order)
         else:
             self.order_weights = order_weights
 
