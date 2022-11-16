@@ -45,4 +45,4 @@ def contours2boxes(contours, axis=-2):
     Returns:
 
     """
-    return torch.cat((contours.min(axis).values, contours.max(axis).values), axis)
+    return torch.cat((contours.min(axis).values, contours.max(axis).values), axis + (axis < 0))
