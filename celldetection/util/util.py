@@ -673,7 +673,7 @@ def ensure_num_tuple(v, num=2, msg=''):
     return v
 
 
-def gaussian_kernel(kernel_size, sigma=-1) -> np.ndarray:
+def gaussian_kernel(kernel_size, sigma=-1, nd=2) -> np.ndarray:
     """Get Gaussian kernel.
 
     Constructs and returns a Gaussian kernel.
