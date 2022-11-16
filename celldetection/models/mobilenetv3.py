@@ -1,8 +1,12 @@
 import torch.nn as nn
 from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual, _mobilenet_v3_conf
-from torchvision.models.mobilenetv2 import ConvBNActivation
 from typing import Any, Callable, List, Optional, Sequence
 from functools import partial
+
+try:
+    from torchvision.ops.misc import Conv2dNormActivation as ConvBNActivation
+except ImportError:
+    from torchvision.models.mobilenetv2 import ConvBNActivation  # for older versions
 
 __all__ = ['MobileNetV3Large', 'MobileNetV3Small']
 
@@ -46,13 +50,16 @@ class MobileNetV3Base(nn.Sequential):
             norm_layer = partial(nn.BatchNorm2d, eps=0.001, momentum=0.01)
 
         layers: List[nn.Sequential] = [nn.Sequential()]
+        cbna_kw = {}  # needed because torchvision changed behaviour
+        if norm_layer is not None:
+            cbna_kw['norm_layer'] = norm_layer
 
         # building first layer
         firstconv_output_channels = inverted_residual_setting[0].input_channels
         self.out_channels = [firstconv_output_channels]
         layers[-1].add_module(str(len(layers[-1])),
                               ConvBNActivation(in_channels, firstconv_output_channels, kernel_size=3, stride=2,
-                                               norm_layer=norm_layer, activation_layer=nn.Hardswish))
+                                               activation_layer=nn.Hardswish, **cbna_kw))
 
         # building inverted residual blocks
         for cnf in inverted_residual_setting:
@@ -70,7 +77,7 @@ class MobileNetV3Base(nn.Sequential):
         assert len(self.out_channels) == len(layers)
         layers[-1].add_module(str(len(layers[-1])),
                               ConvBNActivation(lastconv_input_channels, lastconv_output_channels, kernel_size=1,
-                                               norm_layer=norm_layer, activation_layer=nn.Hardswish))
+                                               activation_layer=nn.Hardswish, **cbna_kw))
 
         super().__init__(*layers)
         init_modules_(self)
