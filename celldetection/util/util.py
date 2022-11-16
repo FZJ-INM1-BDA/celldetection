@@ -682,13 +682,21 @@ def gaussian_kernel(kernel_size, sigma=-1) -> np.ndarray:
         kernel_size: Kernel size as int or tuple. It should be odd and positive.
         sigma: Gaussian standard deviation as float or tuple. If it is non-positive, it is computed from kernel_size as
             ``sigma = 0.3*((kernel_size-1)*0.5 - 1) + 0.8``.
+        nd: Number of kernel dimensions.
 
     Returns:
         Gaussian Kernel.
     """
-    kernel_size = ensure_num_tuple(kernel_size, msg='kernel_size must be int, tuple or list.')
-    sigma = ensure_num_tuple(sigma, msg='sigma must be int, tuple or list.')
-    return getGaussianKernel(kernel_size[0], sigma[0]) @ getGaussianKernel(kernel_size[1], sigma[1]).T
+    kernel_sizes = ensure_num_tuple(kernel_size, num=nd, msg='kernel_size must be int, tuple or list.')
+    sigmas = ensure_num_tuple(sigma, num=nd, msg='sigma must be int, tuple or list.')
+    y = None
+    for k, s in zip(kernel_sizes, sigmas):
+        y_ = getGaussianKernel(k, s)[:, 0]
+        if y is None:
+            y = y_
+        else:
+            y = y[..., :, None] * y_[..., None, :]
+    return y
 
 
 class Bytes(int):
