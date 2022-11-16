@@ -813,7 +813,7 @@ class Tiling:
         )
 
 
-def to_h5(filename, mode='w', chunks=False, compression=None, overwrite=False, create_dataset_kw: dict = None,
+def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, create_dataset_kw: dict = None,
           **kwargs):
     """To hdf5 file.
 
