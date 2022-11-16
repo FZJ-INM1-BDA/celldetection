@@ -4,6 +4,8 @@ from torch.nn import functional as F
 from torchvision.models.resnet import ResNet as RN, Bottleneck, BasicBlock
 from ..util.util import Dict, lookup_nn
 from torch.hub import load_state_dict_from_url
+from .ppm import append_pyramid_pooling_
+
 
 __all__ = ['get_resnet', 'ResNet50', 'ResNet34', 'ResNet18', 'ResNet152', 'ResNet101', 'WideResNet101_2',
            'WideResNet50_2', 'ResNeXt152_32x8d', 'ResNeXt101_32x8d', 'ResNeXt50_32x4d']
@@ -84,7 +86,8 @@ def map_state_dict(in_channels, state_dict, fused_initial):
 
 class ResNet(nn.Sequential):
     def __init__(self, in_channels, *body: nn.Module, initial_strides=2, base_channel=64, initial_pooling=True,
-                 final_layer=None, final_activation=None, fused_initial=True, pretrained=False, **kwargs):
+                 final_layer=None, final_activation=None, fused_initial=True, pretrained=False,
+                 pyramid_pooling=False, pyramid_pooling_channels=64, pyramid_pooling_kwargs=None, **kwargs):
         assert len(body) > 0
         body = list(body)
         initial = [
@@ -113,6 +116,9 @@ class ResNet(nn.Sequential):
             else:
                 raise ValueError('There is no default set of weights for this model. '
                                  'Please specify a URL using the `pretrained` argument.')
+        if pyramid_pooling:
+            pyramid_pooling_kwargs = {} if pyramid_pooling_kwargs is None else pyramid_pooling_kwargs
+            append_pyramid_pooling_(self, pyramid_pooling_channels, **pyramid_pooling_kwargs)
 
 
 class VanillaResNet(ResNet):
