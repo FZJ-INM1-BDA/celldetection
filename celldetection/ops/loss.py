@@ -1,8 +1,10 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+import torchvision.ops.boxes as bx
+from .boxes import pairwise_box_iou, pairwise_generalized_box_iou
 
-__all__ = ['reduce_loss', 'log_margin_loss', 'margin_loss', 'r1_regularization']
+__all__ = ['reduce_loss', 'log_margin_loss', 'margin_loss', 'r1_regularization', 'iou_loss']
 
 
 def reduce_loss(x: Tensor, reduction: str, **kwargs):
@@ -82,3 +84,26 @@ def r1_regularization(logits, inputs, gamma=1., reduction='sum'):
     grads = torch.autograd.grad(logits.sum(), inputs=inputs, create_graph=True, retain_graph=True, only_inputs=True)[0]
     penalty = reduce_loss(grads.square(), reduction, dim=list(range(1, grads.ndim)))
     return penalty * (gamma * .5)
+
+
+def iou_loss(boxes, boxes_targets, reduction='mean', generalized=True, method='linear', min_size=None):
+    if min_size is not None:  # eliminates invalid boxes
+        keep = bx.remove_small_boxes(boxes, min_size)
+        boxes, boxes_targets = (c[keep] for c in (boxes, boxes_targets))
+
+    if generalized:
+        iou = pairwise_generalized_box_iou(boxes, boxes_targets)  # Tensor[n]
+    else:
+        iou = pairwise_box_iou(boxes, boxes_targets)  # Tensor[n]
+
+    if method == 'log':
+        if generalized:
+            iou = iou * .5 + .5
+        loss = -torch.log(iou + 1e-8)
+    elif method == 'linear':
+        loss = 1 - iou
+    else:
+        raise ValueError
+
+    loss = reduce_loss(loss, reduction=reduction)
+    return loss
