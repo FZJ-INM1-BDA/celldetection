@@ -705,7 +705,7 @@ class Bytes(int):
     Printable integer that represents Bytes.
 
     """
-    UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB', 'BB']
+    UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB', 'BiB']
 
     def __str__(self):
         n = np.log2(int(self)) if self > 0 else 0
