@@ -4,6 +4,7 @@ from itertools import product
 from collections import OrderedDict
 from torch.nn import Module
 from torch import optim
+import inspect
 from typing import Callable, Union
 import albumentations as A
 
@@ -198,6 +199,54 @@ class Config(Dict):
         self._modules = self.to_dict()
         return Module.__repr__(self)
 
+    def args(self, fn: Callable):
+        """
+
+        Examples:
+            >>> conf = cd.Config(a=1, b=2, c=42)
+            >>> def f(a, b):
+            ...     return a + b
+            >>> f(*conf.args(f))
+            3
+
+        Args:
+            fn:
+
+        Returns:
+
+        """
+        r = []
+        for k in inspect.signature(fn).parameters.keys():
+            if k == 'args' or k == 'kwargs':
+                break
+            r.append(self[k])
+        return r
+
+    def kwargs(self, fn: Callable):
+        """
+
+        Examples:
+            >>> conf = cd.Config(a=1, b=2, c=42)
+            >>> def f(a, b):
+            ...     return a + b
+            >>> f(**conf.kwargs(f))
+            3
+
+        Args:
+            fn:
+
+        Returns:
+
+        """
+        r = dict()
+        for k in inspect.signature(fn).parameters.keys():
+            if k == 'args' or k == 'kwargs':
+                continue
+            v = self.get(k, None)
+            if v is not None:
+                r[k] = v
+        return r
+
     def __getstate__(self):
         return self.to_dict()
 
@@ -257,6 +306,9 @@ class Schedule:
         self.add(kwargs)
         self._iter_conf = None
         self._iter_i = None
+
+    def get_multiples(self, num=2):
+        return {k: v for k, v in self.values.items() if (isinstance(v, (list, tuple, set)) and len(v) >= num)}
 
     def add(self, d: dict = None, conditions: dict = None, **kwargs):
         """Add setting to schedule.
