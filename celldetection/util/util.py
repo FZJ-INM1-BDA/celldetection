@@ -14,13 +14,14 @@ from os import makedirs
 import pynvml as nv
 from cv2 import getGaussianKernel
 import h5py
+from collections import OrderedDict
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'asnumpy', 'fetch_model',
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
            'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff',
-           'exponential_moving_average_', 'from_json', 'to_json', 'weight_norm_', 'inject_extra_repr_']
+           'to_json', 'from_json', 'exponential_moving_average_', 'weight_norm_', 'inject_extra_repr_']
 
 
 class Dict(dict):
@@ -80,6 +81,14 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, **kw):
         Looked up item.
     """
     src = src or nn
+    if isinstance(item, tuple):
+        if len(item) == 1:
+            item, = item
+        elif len(item) == 2:
+            item, _kw = item
+            kw.update(_kw)
+        else:
+            raise ValueError('Allowed formats for item: (item,) or (item, kwargs).')
     if item is None:
         v = nn.Identity
     elif isinstance(item, str):
@@ -128,7 +137,7 @@ def tensor_to(inputs: Union[list, tuple, dict, Tensor], *args, **kwargs):
     """
     if isinstance(inputs, Tensor):
         inputs = inputs.to(*args, **kwargs)
-    elif isinstance(inputs, dict):
+    elif isinstance(inputs, (dict, OrderedDict)):
         inputs = {k: tensor_to(b, *args, **kwargs) for k, b in inputs.items()}
     elif isinstance(inputs, (list, tuple)):
         inputs = type(inputs)([tensor_to(b, *args, **kwargs) for b in inputs])
@@ -338,6 +347,7 @@ def random_seed(seed, backends=False, deterministic_torch=True):
     random.seed(seed)
     manual_seed(seed)
     np.random.seed(seed)
+    torch.cuda.manual_seed(seed)
     if backends:
         cudnn.deterministic = True
         cudnn.benchmark = False
@@ -345,7 +355,8 @@ def random_seed(seed, backends=False, deterministic_torch=True):
         torch.use_deterministic_algorithms(True)
 
 
-def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, scheduler=None, gpu_stats=False):
+def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, scheduler=None, gpu_stats=False,
+                progress=True):
     """Basic train function.
 
     Notes:
@@ -362,10 +373,11 @@ def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, 
         scaler: Gradient scaler. If set PyTorch's autocast feature is used.
         scheduler: Scheduler. Step called after epoch.
         gpu_stats: Whether to print GPU stats.
+        progress: Show progress.
     """
     from torch.cuda.amp import autocast
     model.train()
-    tq = tqdm(train_loader, desc=desc)
+    tq = tqdm(train_loader, desc=desc) if progress else train_loader
     gpu_st = None
     if gpu_stats:
         gpu_st = GpuStats()
@@ -375,15 +387,16 @@ def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, 
         with autocast(scaler is not None):
             outputs: dict = model(batch['inputs'], targets=batch)
         loss = outputs['loss']
-        info = [] if desc is None else [desc]
-        if gpu_st is not None:
-            info.append(str(gpu_st))
-        losses = outputs.get('losses')
-        if losses is not None and isinstance(losses, dict):
-            info.append('losses(' + ', '.join(
-                [(f'{k}: %g' % np.round(asnumpy(v), 3)) for k, v in losses.items() if v is not None]) + ')')
-        info.append('loss %g' % np.round(asnumpy(loss), 3))
-        tq.desc = ' - '.join(info)
+        if progress:
+            info = [] if desc is None else [desc]
+            if gpu_st is not None:
+                info.append(str(gpu_st))
+            losses = outputs.get('losses')
+            if losses is not None and isinstance(losses, dict):
+                info.append('losses(' + ', '.join(
+                    [(f'{k}: %g' % np.round(asnumpy(v), 3)) for k, v in losses.items() if v is not None]) + ')')
+            info.append('loss %g' % np.round(asnumpy(loss), 3))
+            tq.desc = ' - '.join(info)
         if scaler is None:
             loss.backward()
             optimizer.step()
@@ -750,7 +763,7 @@ class GpuStats:
         try:
             nv.nvmlInit()
             self.num = nv.nvmlDeviceGetCount()
-        except:
+        except Exception:
             self.num = 0
         self.delimiter = delimiter
 
@@ -928,3 +941,28 @@ def from_json(filename):
     with open(filename, 'r') as fp:
         v = json.load(fp)
     return v
+
+
+def get_nd_conv(dim: int):
+    assert isinstance(dim, int) and dim in (1, 2, 3)
+    return getattr(nn, 'Conv%dd' % dim)
+
+
+def get_nd_max_pool(dim: int):
+    assert isinstance(dim, int) and dim in (1, 2, 3)
+    return getattr(nn, 'MaxPool%dd' % dim)
+
+
+def get_nd_batchnorm(dim: int):
+    assert isinstance(dim, int) and dim in (1, 2, 3)
+    return getattr(nn, 'BatchNorm%dd' % dim)
+
+
+def get_nd_dropout(dim: int):
+    assert isinstance(dim, int) and dim in (1, 2, 3)
+    return getattr(nn, 'Dropout%dd' % dim)
+
+
+def get_nd_linear(dim: int):
+    assert isinstance(dim, int) and dim in (1, 2, 3)
+    return ['', 'bi', 'tri'][dim - 1] + 'linear'
