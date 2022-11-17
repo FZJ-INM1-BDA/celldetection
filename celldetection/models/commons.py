@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch import Tensor, tanh, sigmoid
-from ..util.util import lookup_nn, tensor_to
+from ..util.util import lookup_nn, tensor_to, ensure_num_tuple
 from ..ops.commons import split_spatially, minibatch_std_layer
 from typing import Type
 
