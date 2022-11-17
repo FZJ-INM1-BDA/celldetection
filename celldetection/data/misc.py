@@ -3,6 +3,7 @@ import torch
 from collections import OrderedDict
 from skimage import img_as_ubyte
 from ..util.util import get_device
+import cv2
 from skimage import measure
 
 __all__ = ['to_tensor', 'transpose_spatial', 'universal_dict_collate_fn', 'normalize_percentile', 'random_crop',
@@ -182,6 +183,20 @@ def random_crop(*arrays, height, width=None):
     return results
 
 
+def random_pad(*arrays, size, mode='constant', **kwargs):
+    if len(arrays) <= 0:
+        return None
+    reference = arrays[0].shape[:len(size)]
+    padding = [max(size[i] - reference[i], 0) for i in range(len(size))]
+    start = [int(np.random.uniform() * p) for p in padding]
+    end = [p - s for p, s in zip(padding, start)]
+    p = [[a, b] for a, b in zip(start, end)]
+    results = [np.pad(i, p + [[0, 0]] * (i.ndim - len(p)), mode=mode, **kwargs) for i in arrays]
+    if len(results) == 1:
+        results, = results
+    return results
+
+
 def rle2mask(code, shape, transpose=True, min_index=1, constant=1) -> np.ndarray:
     """Run length encoding to mask.
 
@@ -296,3 +311,8 @@ def resample_contours(contours, num=None, close=True, epsilon=1e-6):
     shape = contours.shape[:-2] + (num, 2)
     sample = contours[idx].reshape(shape) * (1 - alpha) + contours[idx[:-1] + (idx[-1] + 1,)].reshape(shape) * alpha
     return sample
+
+
+def rescale_image(img, scale, **kwargs):
+    target_size = tuple(np.round(np.array(img.shape[:2]) * scale).astype('int'))
+    return cv2.resize(img, target_size[::-1], **kwargs)

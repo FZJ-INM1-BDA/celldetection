@@ -1,6 +1,10 @@
 import numpy as np
 from skimage import morphology
 import cv2
+from .misc import rgb_to_scalar
+
+__all__ = ['remove_partials_', 'fill_label_gaps_', 'filter_instances_', 'relabel_', 'stack_labels',
+           'unary_masks2labels', 'boxes2masks', 'fill_padding_', 'remove_padding']
 
 
 def remove_partials_(label_stack, border=1, constant=-1):
@@ -34,6 +38,24 @@ def fill_label_gaps_(labels):
     gaps = list(set(range(1, len(uniques) + 1)) - set(uniques))
     while len(gaps) > 0:
         labels[labels == uniques.pop()] = gaps.pop()
+
+
+def fill_padding_(inputs, padding: int, constant=-1):
+    if padding <= 0:
+        return None
+    if isinstance(inputs, (list, tuple)):
+        [fill_padding_(i, padding, constant) for i in inputs]
+        return
+    inputs[:padding] = constant
+    inputs[-padding:] = constant
+    inputs[:, :padding] = constant
+    inputs[:, -padding:] = constant
+
+
+def remove_padding(inputs, padding: int):
+    if isinstance(inputs, (list, tuple)):
+        return [remove_padding(i, padding) for i in inputs]
+    return inputs[padding:-padding, padding:-padding]
 
 
 def filter_instances_(labels, partials=True, partials_border=1, min_area=4, max_area=None, constant=-1,
@@ -100,6 +122,26 @@ def relabel_(label_stack, axis=2):
                 continue
             cur_max += 1
             label_stack[mask, channel] = cur_max
+
+
+def stack_labels(*maps, axis=2, dtype='int32', relabel=True):
+    """Stack labels.
+
+    Args:
+        *maps: List[Union[Array[h, w], Array[h, w, 3]]. Grayscale or rgb label maps.
+            Rgb labels are assumed to encode labels with color and are converted to grayscale labels before stacking.
+        axis: Stacking axis.
+        dtype: Output data type.
+        relabel: Whether to assign new labels or not.
+
+    Returns:
+        Array[h, w, c]. Label image.
+    """
+    maps = [(rgb_to_scalar(m, dtype=dtype) if (m.ndim == 3 and m.shape[2] == 3) else m.astype(dtype)) for m in maps]
+    stack = np.stack(maps, axis=axis)
+    if relabel:
+        relabel_(stack, axis)
+    return stack
 
 
 def unary_masks2labels(unary_masks, transpose=True):
