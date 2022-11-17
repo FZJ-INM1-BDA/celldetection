@@ -7,7 +7,8 @@ from ..ops.commons import split_spatially, minibatch_std_layer
 from typing import Type
 
 __all__ = ['TwoConvNormRelu', 'ScaledTanh', 'ScaledSigmoid', 'ReplayCache', 'ConvNormRelu', 'ConvNorm',
-           'ResBlock', 'NoAmp', 'ReadOut', 'BottleneckBlock', 'SpatialSplit', 'MinibatchStdLayer']
+           'ResBlock', 'NoAmp', 'ReadOut', 'BottleneckBlock', 'SpatialSplit', 'MinibatchStdLayer',
+           'Stride2d', 'Stride3d']
 
 
 class ConvNorm(nn.Sequential):
@@ -435,3 +436,22 @@ class MinibatchStdLayer(torch.nn.Module):
 
     def extra_repr(self) -> str:
         return f'channels={self.channels}, group_channels={self.group_channels}'
+
+
+class _Stride(nn.Module):
+    def __init__(self, stride, nd=2):
+        super().__init__()
+        self.stride = ensure_num_tuple(stride, nd)
+
+    def forward(self, x):
+        return x[(...,) + tuple((slice(None, None, s) for s in self.stride))]
+
+
+class Stride2d(_Stride):
+    def __init__(self, stride):
+        super().__init__(stride, 2)
+
+
+class Stride3d(_Stride):
+    def __init__(self, stride):
+        super().__init__(stride, 3)
