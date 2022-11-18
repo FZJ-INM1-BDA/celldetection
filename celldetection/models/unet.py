@@ -53,13 +53,16 @@ class GeneralizedUNet(FeaturePyramidNetwork):
             block_kwargs: dict = None,
             final_activation=None,
             interpolate='nearest',
-            initialize=True
+            initialize=True,
+            keep_features=True
     ):
         super().__init__([], 0)
         icl = in_channels_list
         block_kwargs = {} if block_kwargs is None else block_kwargs
         self.interpolate = interpolate
         self.out_channels = out_channels
+        self.keep_features = keep_features
+        self.features_key = 'features'
         self.out_layer = nn.Conv2d(icl[0], out_channels, (1, 1)) if out_channels > 0 else None
 
         for j, in_channels in enumerate(icl):
@@ -102,6 +105,7 @@ class GeneralizedUNet(FeaturePyramidNetwork):
                 3: Tensor[1, 512, 16, 16]
             }
         """
+        features = x
         names = list(x.keys())
         x = list(x.values())
         last_inner = x[-1]
@@ -131,6 +135,8 @@ class GeneralizedUNet(FeaturePyramidNetwork):
         results.insert(0, final)
         names.insert(0, 'out')
         out = OrderedDict([(k, v) for k, v in zip(names, results)])
+        if self.keep_features:
+            out[self.features_key] = features
         return out
 
 
@@ -206,7 +212,7 @@ class UNet(BackboneAsUNet):
 
 def _ni_pretrained(pretrained):
     if pretrained:
-        raise NotImplemented('The `pretrained` option is not yet available for this model.')
+        raise NotImplementedError('The `pretrained` option is not yet available for this model.')
 
 
 def _default_unet_kwargs(backbone_kwargs, pretrained=False):
