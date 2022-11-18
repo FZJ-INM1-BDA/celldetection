@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+import numpy as np
 import torchvision.ops.boxes as bx
 from .boxes import pairwise_box_iou, pairwise_generalized_box_iou
 
@@ -105,5 +106,37 @@ def iou_loss(boxes, boxes_targets, reduction='mean', generalized=True, method='l
     else:
         raise ValueError
 
+    loss = reduce_loss(loss, reduction=reduction)
+    return loss
+
+
+def box_npll_loss(uncertainty, boxes, boxes_targets, factor=10., sigmoid=False, epsilon=1e-8, reduction='mean',
+                  min_size=None):
+    """NPLL.
+
+    References:
+        https://arxiv.org/abs/2006.15607
+
+    Args:
+        uncertainty: Tensor[n, 4].
+        boxes: Tensor[n, 4].
+        boxes_targets: Tensor[n, 4].
+        sigmoid: Whether to apply the ``sigmoid`` function to ``uncertainty``.
+        factor: Uncertainty factor.
+        epsilon: Epsilon.
+        reduction: Loss reduction.
+        min_size: Minimum box size. May be used to remove degenerate boxes.
+
+    Returns:
+        Loss.
+    """
+    if min_size is not None:  # eliminates invalid boxes
+        keep = bx.remove_small_boxes(boxes, min_size)
+        boxes, boxes_targets, uncertainty = (c[keep] for c in (boxes, boxes_targets, uncertainty))
+    delta_sq = torch.square((torch.sigmoid(uncertainty) if sigmoid else uncertainty) * factor)
+    a = torch.square(boxes - boxes_targets) / (2 * delta_sq + epsilon)
+    b = 0.5 * torch.log(delta_sq + epsilon)
+    iou = pairwise_box_iou(boxes, boxes_targets)  # Tensor[n]
+    loss = iou * ((a + b).sum(dim=1) + 2 * np.log(2 * np.pi))
     loss = reduce_loss(loss, reduction=reduction)
     return loss
