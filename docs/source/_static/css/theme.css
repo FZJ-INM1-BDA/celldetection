@@ -4758,9 +4758,13 @@ html {
     color: #404040;
     font-weight: 700;
     position: relative;
-    background: #fcfcfc;
+    /*background: #fcfcfc;*/
     border: none;
     padding: .4045em 1.618em
+}
+
+.wy-menu-vertical li.toctree-l1.current > a, .wy-menu-vertical li.toctree-l1.on a {
+    background: #fcfcfc;
 }
 
 .wy-menu-vertical li.current > a:hover, .wy-menu-vertical li.on a:hover {
@@ -4887,7 +4891,7 @@ html {
 }
 
 .wy-menu-vertical li.toctree-l3.current > a, .wy-menu-vertical li.toctree-l3.current li.toctree-l4 > a {
-    background: #bdbdbd
+    /*background: #bdbdbd*/
 }
 
 .wy-menu-vertical li.toctree-l3 button.toctree-expand {
