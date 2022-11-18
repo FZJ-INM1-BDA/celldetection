@@ -3,7 +3,7 @@ from torch import Tensor
 from torchvision.ops.focal_loss import sigmoid_focal_loss
 from ..ops.loss import iou_loss, box_npll_loss
 
-__all__ = ['SigmoidFocalLoss', 'IoULoss']
+__all__ = ['SigmoidFocalLoss', 'IoULoss', 'BoxNpllLoss']
 
 
 class _FocalLoss(_Loss):

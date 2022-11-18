@@ -12,3 +12,4 @@ from .normalization import *
 from .filters import *
 from .features import *
 from .ppm import *
+from .loss import *
