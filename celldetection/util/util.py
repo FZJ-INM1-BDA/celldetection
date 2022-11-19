@@ -3,7 +3,7 @@ import inspect
 import torch
 import torch.nn as nn
 import torch.nn.init as init
-from typing import Union, List, Tuple, Any, Dict as TDict, Iterator, Type
+from typing import Union, List, Tuple, Any, Dict as TDict, Iterator, Type, Callable
 from torch import Tensor
 from torch.hub import load_state_dict_from_url
 import hashlib
@@ -15,6 +15,9 @@ import pynvml as nv
 from cv2 import getGaussianKernel
 import h5py
 from collections import OrderedDict
+import re
+import sys
+
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'asnumpy', 'fetch_model',
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
@@ -22,7 +25,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
            'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff',
            'to_json', 'from_json', 'exponential_moving_average_', 'weight_norm_', 'inject_extra_repr_',
-           'ensure_num_tuple']
+           'ensure_num_tuple', 'get_nd_conv', 'get_nd_linear', 'get_nd_dropout', 'get_nd_max_pool', 'get_nd_batchnorm']
 
 
 class Dict(dict):
@@ -50,7 +53,41 @@ class Dict(dict):
         super().__init__(kwargs)
 
 
-def lookup_nn(item: str, *a, src=None, call=True, inplace=True, **kw):
+def replace_ndim(s: Union[str, type, Callable], dim: int, allowed_dims=(1, 2, 3)):
+    """Replace ndim.
+
+    Replaces dimension statement of ``string``or ``type``.
+
+    Notes:
+        - Dimensions are expected to be at the end of the type name.
+        - If there is no dimension statement, nothing is changed.
+
+    Examples:
+        >>> replace_ndim('BatchNorm2d', 3)
+        'BatchNorm3d'
+        >>> replace_ndim(nn.BatchNorm2d, 3)
+        torch.nn.modules.batchnorm.BatchNorm3d
+        >>> replace_ndim(nn.GroupNorm, 3)
+        torch.nn.modules.normalization.GroupNorm
+        >>> replace_ndim(F.conv2d, 3)
+        <function torch._VariableFunctionsClass.conv3d>
+
+    Args:
+        s: String or type.
+        dim: Desired dimension.
+        allowed_dims: Allowed dimensions to look for.
+
+    Returns:
+        Input with replaced dimension.
+    """
+    if isinstance(s, str) and dim in allowed_dims:
+        return re.sub(f"[1-3]d$", f'{int(dim)}d', s)
+    elif isinstance(s, type) or callable(s):
+        return getattr(sys.modules[s.__module__], replace_ndim(s.__name__, dim))
+    return s
+
+
+def lookup_nn(item: str, *a, src=None, call=True, inplace=True, nd=None, **kw):
     """
 
     Examples:
@@ -76,6 +113,7 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, **kw):
         call: Whether to call item.
         inplace: Default setting for items that take an `inplace` argument when called.
             As default is True, `lookup_nn('relu')` returns a ReLu instance with `inplace=True`.
+        nd: If set, replace dimension statement (e.g. '2d' in nn.Conv2d) with ``nd``.
         **kw: Keyword arguments passed to item when it is called.
 
     Returns:
@@ -94,9 +132,13 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, **kw):
         v = nn.Identity
     elif isinstance(item, str):
         l_item = item.lower()
+        if nd is not None:
+            l_item = replace_ndim(l_item, nd)
         v = next((getattr(src, i) for i in dir(src) if i.lower() == l_item))
     elif isinstance(item, nn.Module):
         return item
+    elif isinstance(item, type) and nd is not None:
+        v = replace_ndim(item, nd)
     else:
         v = item
     if call:
