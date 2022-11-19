@@ -66,7 +66,7 @@ def append_pyramid_pooling_(module: nn.Sequential, out_channels, scales=(1, 2, 3
         out_channels = p.out_channels
     elif method == 'aspp':
         scales = sorted(tuple(set(scales) - {1}))
-        p = ASPP(module.out_channels[-1], scales, out_channels, **kwargs)
+        p = ASPP(in_channels, scales, out_channels, **kwargs)
     else:
         raise ValueError
     module.append(p)
