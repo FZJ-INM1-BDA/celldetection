@@ -67,16 +67,24 @@ def efd(contour, order=10, epsilon=1e-6):
     return np.array(coefficients), np.stack((contour[..., 0, 0] + a0, contour[..., 0, 1] + c0), axis=-1)
 
 
-def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE) -> dict:
-    """
+def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE, flag_fragmented=False,
+                    raise_fragmented=True, constant=-1) -> dict:
+    """Labels to contours.
+
+    Notes:
+        - If ``flag_fragmented is True``, ``labels`` may be modified inplace.
 
     Args:
         labels:
         mode:
         method: Contour method. CHAIN_APPROX_NONE must be used if contours are used for CPN.
+        flag_fragmented: Whether to flag fragmented labels. Flagging sets labels that consist of more than one
+            connected component to ``constant``.
+        constant: Flagging constant.
+        raise_fragmented: Whether to raise ValueError when encountering fragmented labels.
 
     Returns:
-
+        dict
     """
     crops = []
     contours = OrderedDict({})
@@ -91,17 +99,23 @@ def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
             c, _ = r
         else:
             raise NotImplementedError('try different cv2 version')
-        c, = c
+        try:
+            c, = c
+        except ValueError as ve:
+            if flag_fragmented:
+                labels[labels == label] = constant
+            elif raise_fragmented:
+                raise ValueError('Object labeled with multiple connected components.')
         if len(c) == 1:
             c = np.concatenate((c, c), axis=0)  # min len for other functions to work properly
         contours[label] = c
     return contours
 
 
-def labels2contour_list(labels) -> list:
+def labels2contour_list(labels, **kwargs) -> list:
     if labels.ndim == 2:
         labels = labels[..., None]
-    return [np.squeeze(i, 1) for i in list(labels2contours(labels).values())]
+    return [np.squeeze(i, 1) for i in list(labels2contours(labels, **kwargs).values())]
 
 
 def masks2labels(masks, connectivity=8, label_axis=2, count=False, reduce=np.max, keepdims=True, **kwargs):
@@ -195,6 +209,22 @@ def render_contour(contour, val=1, dtype='int32'):
     return a, (xmin, xmax), (ymin, ymax)
 
 
+def filter_contours_by_intensity(img, contours, min_intensity=None, max_intensity=200, aggregate='mean'):
+    keep = np.ones(len(contours), dtype=bool)
+    for idx, con in enumerate(contours):
+        m, (xmin, xmax), (ymin, ymax) = render_contour(con, dtype='uint8')
+        img_crop = img[ymin:ymin + m.shape[0], xmin:xmin + m.shape[1]]
+        m = m[:img_crop.shape[0], :img_crop.shape[1]]
+        assert m.dtype == np.uint8
+        m.dtype = bool
+        mean_intensity = getattr(np, aggregate)(img_crop[m])
+        if max_intensity is not None and mean_intensity > max_intensity:
+            keep[idx] = False
+        elif min_intensity is not None and mean_intensity < min_intensity:
+            keep[idx] = False
+    return keep
+
+
 def clip_contour_(contour, size):
     np.clip(contour[..., 0], 0, size[1], out=contour[..., 0])
     np.clip(contour[..., 1], 0, size[0], out=contour[..., 1])
@@ -242,7 +272,7 @@ def mask_labels_by_distance_(labels, distances, max_bg_dist, min_fg_dist):
     # Set instance labels to 0 if their distance is <= max_bg_dist
     labels[np.logical_and(np.any(labels > 0, 2), distances <= max_bg_dist)] = 0
 
-    # Set all labels to -1 that have have a distance d with `max_bg_dist < d < min_fg_dist`
+    # Set all labels to -1 that have a distance d with `max_bg_dist < d < min_fg_dist`
     labels[np.logical_and(distances > max_bg_dist, distances < min_fg_dist)] = -1
 
 
@@ -287,13 +317,16 @@ def labels2distances(labels, distance_type=cv2.DIST_L2, overlap_zero=True):
 
 
 class CPNTargetGenerator:
-    def __init__(self, samples, order, random_sampling=True, remove_partials=False, min_fg_dist=.75, max_bg_dist=.5):
+    def __init__(self, samples, order, random_sampling=True, remove_partials=False, min_fg_dist=.75, max_bg_dist=.5,
+                 flag_fragmented=True, flag_fragmented_constant=-1):
         self.samples = samples
         self.order = order
         self.random_sampling = random_sampling
         self.remove_partials = remove_partials
         self.min_fg_dist = min_fg_dist
         self.max_bg_dist = max_bg_dist
+        self.flag_fragmented = flag_fragmented
+        self.flag_fragmented_constant = flag_fragmented_constant
 
         self.labels = None
         self.reduced_labels = None
@@ -311,22 +344,26 @@ class CPNTargetGenerator:
         self._sampled_contours = None
         self._sampled_sizes = None
 
-    def feed(self, labels, border=1):
+    def feed(self, labels, border=1, min_area=3, max_area=None):
         """
+
+        Notes:
+            - May apply inplace changes to ``labels``.
 
         Args:
             labels: Single label image. E.g. of shape (height, width, channels).
-            classes:
             border:
-
+            min_area:
+            max_area:
         """
         if labels.ndim == 2:
             labels = labels[..., None]
 
         filter_instances_(labels, partials=self.remove_partials, partials_border=border,
-                          min_area=5, max_area=None, constant=-1, continuous=True)
+                          min_area=min_area, max_area=max_area, constant=-1, continuous=True)
 
         self.labels = labels
+        _ = self.contours  # compute contours
 
         self.distances, labels = labels2distances(labels)
         mask_labels_by_distance_(labels, self.distances, self.max_bg_dist, self.min_fg_dist)
@@ -348,7 +385,8 @@ class CPNTargetGenerator:
     @property
     def contours(self):
         if self._contours is None:
-            self._contours: dict = labels2contours(self.labels)
+            self._contours: dict = labels2contours(self.labels, flag_fragmented=self.flag_fragmented,
+                                                   constant=self.flag_fragmented_constant)
         return self._contours
 
     @property
