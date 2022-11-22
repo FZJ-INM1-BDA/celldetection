@@ -443,6 +443,12 @@ class Schedule:
         with open(filename, 'w') as fp:
             json.dump(self.values, fp)
 
+    @staticmethod
+    def from_json(filename):
+        c = Schedule()
+        c.load(filename)
+        return c
+
     def load(self, filename):
         with open(filename, 'r') as fp:
             self.values = json.load(fp)
