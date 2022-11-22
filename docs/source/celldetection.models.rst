@@ -60,3 +60,10 @@ Normalization
 .. automodule:: celldetection.models.normalization
    :members:
    :undoc-members:
+
+Losses
+------
+
+.. automodule:: celldetection.models.loss
+   :members:
+   :undoc-members:
