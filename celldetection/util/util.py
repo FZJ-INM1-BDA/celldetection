@@ -25,7 +25,8 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'GpuStats', 'trainable_params', 'frozen_params', 'Tiling', 'load_image', 'gaussian_kernel',
            'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff',
            'to_json', 'from_json', 'exponential_moving_average_', 'weight_norm_', 'inject_extra_repr_',
-           'ensure_num_tuple', 'get_nd_conv', 'get_nd_linear', 'get_nd_dropout', 'get_nd_max_pool', 'get_nd_batchnorm']
+           'ensure_num_tuple', 'get_nd_conv', 'get_nd_linear', 'get_nd_dropout', 'get_nd_max_pool', 'get_nd_batchnorm',
+           'get_warmup_factor', 'print_to_file']
 
 
 class Dict(dict):
@@ -1009,3 +1010,19 @@ def get_nd_dropout(dim: int):
 def get_nd_linear(dim: int):
     assert isinstance(dim, int) and dim in (1, 2, 3)
     return ['', 'bi', 'tri'][dim - 1] + 'linear'
+
+
+def get_warmup_factor(step, steps=1000, factor=0.001, method='linear'):
+    if step >= steps:
+        return 1.
+    if method == 'constant':
+        return factor
+    elif method == 'linear':
+        a = step / steps
+        return factor * (1 - a) + a
+    raise ValueError(f'Unknown method: {method}')
+
+
+def print_to_file(*args, filename, mode='w', **kwargs):
+    with open(filename, mode=mode) as f:
+        print(*args, file=f, **kwargs)
