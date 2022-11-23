@@ -303,7 +303,7 @@ def random_code_name_dir(directory='./out', chars=6):
         out_dir = join(directory, code_name)
         makedirs(out_dir)
     except FileExistsError:
-        return random_code_name_dir(directory)
+        return random_code_name_dir(directory, chars=chars)
     return code_name, out_dir
 
 
