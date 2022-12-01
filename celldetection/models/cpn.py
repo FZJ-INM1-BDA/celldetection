@@ -217,10 +217,11 @@ class CPN(nn.Module):
             refinement_buckets=refinement_buckets
         )
 
-        self.order_weights = 1.
         if isinstance(order_weights, bool):
             if order_weights:
-                self.order_weights = order_weighting(self.order)
+                self.register_buffer('order_weights', order_weighting(self.order))
+            else:
+                self.order_weights = 1.
         else:
             self.order_weights = order_weights
 
