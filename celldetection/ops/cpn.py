@@ -178,6 +178,17 @@ def batched_box_nms(
     return (cons, scos) + tuple(further)
 
 
+def batched_box_nmsi(
+        boxes: List[Tensor], scores: List[Tensor], iou_threshold: float
+) -> List[Tensor]:
+    assert len(scores) == len(boxes)
+    keeps = []
+    for con, sco in zip(boxes, scores):
+        indices = torch.ops.torchvision.nms(con, sco, iou_threshold=iou_threshold)
+        keeps.append(indices)
+    return keeps
+
+
 def order_weighting(order, max_w=5, min_w=1, spread=None) -> torch.Tensor:
     x = torch.arange(order).float()
     if spread is None:
