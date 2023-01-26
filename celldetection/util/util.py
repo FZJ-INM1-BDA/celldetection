@@ -18,7 +18,6 @@ from collections import OrderedDict
 import re
 import sys
 
-
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'asnumpy', 'fetch_model',
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
@@ -26,7 +25,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff',
            'to_json', 'from_json', 'exponential_moving_average_', 'weight_norm_', 'inject_extra_repr_',
            'ensure_num_tuple', 'get_nd_conv', 'get_nd_linear', 'get_nd_dropout', 'get_nd_max_pool', 'get_nd_batchnorm',
-           'get_warmup_factor', 'print_to_file']
+           'get_warmup_factor', 'print_to_file', 'NormProxy', 'num_bytes', 'from_h5']
 
 
 class Dict(dict):
@@ -147,6 +146,47 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, nd=None, **kw):
         kwargs.update(kw)
         v = v(*a, **kwargs)
     return v
+
+
+class NormProxy:
+    def __init__(self, norm, **kwargs):
+        """Norm Proxy.
+
+        Examples:
+            >>> GroupNorm = NormProxy('groupnorm', num_groups=32)
+            ... GroupNorm(3)
+            GroupNorm(32, 3, eps=1e-05, affine=True)
+            >>> GroupNorm = NormProxy(nn.GroupNorm, num_groups=32)
+            ... GroupNorm(3)
+            GroupNorm(32, 3, eps=1e-05, affine=True)
+            >>> BatchNorm2d = NormProxy('batchnorm2d', momentum=.2)
+            ... BatchNorm2d(3)
+            BatchNorm2d(3, eps=1e-05, momentum=0.2, affine=True, track_running_stats=True)
+            >>> BatchNorm2d = NormProxy(nn.BatchNorm2d, momentum=.2)
+            ... BatchNorm2d(3)
+            BatchNorm2d(3, eps=1e-05, momentum=0.2, affine=True, track_running_stats=True)
+
+        Args:
+            norm: Norm class or name.
+            **kwargs: Keyword arguments.
+        """
+        self.norm = norm
+        self.kwargs = kwargs
+
+    def __call__(self, num_channels):
+        Norm = lookup_nn(self.norm, call=False)
+        kwargs = dict(self.kwargs)
+        args = inspect.getfullargspec(Norm).args
+        if 'num_features' in args:
+            kwargs['num_features'] = num_channels
+        elif 'num_channels' in args:
+            kwargs['num_channels'] = num_channels
+        return Norm(**kwargs)
+
+    def __repr__(self):
+        return f'NormProxy({self.norm}, kwargs={self.kwargs})'
+
+    __str__ = __repr__
 
 
 def reduce_loss_dict(losses: dict, divisor):
@@ -900,6 +940,26 @@ def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, cr
                 h.create_dataset(k, data=v, compression=compression, chunks=chunks, **create_dataset_kw)
 
 
+def from_h5(filename, *keys, **keys_slices):
+    """From h5.
+
+    Reads data from hdf5 file.
+
+    Args:
+        filename: Filename.
+        *keys: Keys to read.
+        **keys_slices: Keys with indices or slices. E.g. `from_h5('file.h5', 'key0', key=slice(0, 42))`.
+
+    Returns:
+        Data from hdf5 file. As tuple if multiple keys are provided.
+    """
+    with h5py.File(filename, 'r') as h:
+        res = tuple(h[k][:] for k in keys) + tuple(h[k][v] for k, v in keys_slices.items())
+    if len(res) == 1:
+        res, = res
+    return res
+
+
 def to_tiff(filename, image, mode='w', method='tile', bigtiff=True):
     """To tiff file.
 
@@ -1026,3 +1086,23 @@ def get_warmup_factor(step, steps=1000, factor=0.001, method='linear'):
 def print_to_file(*args, filename, mode='w', **kwargs):
     with open(filename, mode=mode) as f:
         print(*args, file=f, **kwargs)
+
+
+def num_bytes(x: Union[np.ndarray, Tensor]):
+    """Num Bytes.
+
+    Returns the size in bytes of the given ndarray or Tensor.
+
+    Args:
+        x: Array or Tensor.
+
+    Returns:
+        Bytes
+    """
+    if isinstance(x, np.ndarray):
+        bts = x.itemsize * x.size
+    elif isinstance(x, Tensor):
+        bts = x.numel() * x.element_size()
+    else:
+        raise ValueError(f'Could not handle type: {type(x)}')
+    return Bytes(bts)
