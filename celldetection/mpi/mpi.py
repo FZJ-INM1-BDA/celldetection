@@ -80,7 +80,7 @@ try:
 
     ANY_TAG = MPI.ANY_TAG
     ANY_SOURCE = MPI.ANY_SOURCE
-except ModuleNotFoundError as e:
+except (ModuleNotFoundError, ImportError) as e:
     _ERR = e
     MPI = False
     ANY_TAG = -1
