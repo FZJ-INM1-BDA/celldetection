@@ -202,6 +202,22 @@ def contours2fourier(contours: dict, order=5, dtype=np.float32):
     return fouriers, locations
 
 
+def contours2boxes(contours):
+    """Contours to boxes.
+
+    Args:
+        contours: Array[num_contours, num_points, 2]. (x, y) format.
+
+    Returns:
+        Array[num_contours, 4]. (x0, y0, x1, y1) format.
+    """
+    if len(contours):
+        boxes = np.concatenate((contours.min(1), contours.max(1)), 1)
+    else:
+        boxes = np.empty((0, 4))
+    return boxes
+
+
 def render_contour(contour, val=1, dtype='int32'):
     xmin, ymin = np.floor(np.min(contour, axis=0)).astype('int')
     xmax, ymax = np.ceil(np.max(contour, axis=0)).astype('int')
