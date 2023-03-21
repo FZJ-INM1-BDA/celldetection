@@ -59,3 +59,4 @@ autoapi_python_use_implicit_namespaces = False
 add_module_names = False
 autodoc_inherit_docstrings = False
 theme_navigation_depth = 2
+html_theme_options = {'navigation_depth': 2}

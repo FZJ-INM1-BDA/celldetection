@@ -6129,6 +6129,10 @@ h1, h2, h3, .sig-name, .sig-name span {
 }
 
 /* Custom NAV */
+/*.wy-menu-vertical li.current > a button, .wy-menu-vertical li.on a button {*/
+.wy-menu-vertical li.toctree-l1 button {
+    display: none!important;
+}
 .wy-menu-vertical>ul>li:first-child {
     margin-top: 4px;
 }
