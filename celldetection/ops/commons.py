@@ -3,7 +3,8 @@ from torch import Tensor
 import torch.nn.functional as F
 from typing import List
 
-__all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially', 'minibatch_std_layer', 'strided_upsampling2d']
+__all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially', 'minibatch_std_layer', 'strided_upsampling2d',
+           'interpolate_vector']
 
 
 def downsample_labels(inputs, size: List[int]):
@@ -54,24 +55,28 @@ def padded_stack2d(*images, dim=0) -> Tensor:
     return torch.stack(images, dim=dim)
 
 
-def split_spatially(x, height, width=None):
+def split_spatially(x, size):
     """Split spatially.
 
-    Splits spatial dimensions of Tensor ``x`` into patches of size ``(height, width)`` and adds the patches
+    Splits spatial dimensions of Tensor ``x`` into patches of given ``size`` and adds the patches
     to the batch dimension.
 
     Args:
-        x: Input Tensor[n, c, h, w].
-        height: Patch height.
-        width: Patch width.
+        x: Input Tensor[n, c, h, w, ...].
+        size: Patch size of the splits.
 
     Returns:
         Tensor[n * h//height * w//width, c, height, width].
     """
-    width = width or height
-    n, c, h, w = x.shape
-    h_, w_ = h // height, w // width
-    return x.view(n, c, h_, height, w_, width).permute(0, 2, 4, 1, 3, 5).reshape(-1, c, height, width)
+    n, c = x.shape[:2]
+    spatial = x.shape[2:]
+    nd = len(spatial)
+    assert len(spatial) == len(size)
+    v = n, c
+    for cur, new in zip(spatial, size):
+        v += (cur // new, new)
+    perm = (0,) + tuple(range(2, nd * 2 + 1, 2)) + tuple(range(1, nd * 3, 2))
+    return x.view(v).permute(perm).reshape((-1, c) + tuple(size))
 
 
 def minibatch_std_layer(x, channels=1, group_channels=None, epsilon=1e-8):
@@ -121,3 +126,19 @@ def strided_upsampling2d(x, factor=2, const=0):
         x_.fill_(const)
     x_[..., ::factor, ::factor] = x
     return x_
+
+
+def interpolate_vector(v, size, **kwargs):
+    """Interpolate vector.
+
+    Args:
+        v: Vector as ``Tensor[d]``.
+        size: Target size.
+        **kwargs: Keyword arguments for ``F.interpolate``
+
+    Returns:
+
+    """
+    return torch.squeeze(torch.squeeze(
+        F.interpolate(v[None, None], size, **kwargs), 0
+    ), 0)
