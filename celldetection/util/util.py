@@ -3,7 +3,7 @@ import inspect
 import torch
 import torch.nn as nn
 import torch.nn.init as init
-from typing import Union, List, Tuple, Any, Dict as TDict, Iterator, Type, Callable
+from typing import Union, List, Tuple, Any, Dict as TDict, Iterator, Type, Callable, Iterable, Sequence
 from torch import Tensor
 from torch.hub import load_state_dict_from_url
 import hashlib
@@ -17,6 +17,10 @@ import h5py
 from collections import OrderedDict
 import re
 import sys
+from itertools import product
+from inspect import currentframe
+from shutil import copy2
+
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'asnumpy', 'fetch_model',
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
@@ -25,7 +29,38 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'iter_submodules', 'replace_module_', 'wrap_module_', 'spectral_norm_', 'to_h5', 'to_tiff',
            'to_json', 'from_json', 'exponential_moving_average_', 'weight_norm_', 'inject_extra_repr_',
            'ensure_num_tuple', 'get_nd_conv', 'get_nd_linear', 'get_nd_dropout', 'get_nd_max_pool', 'get_nd_batchnorm',
-           'get_warmup_factor', 'print_to_file', 'NormProxy', 'num_bytes', 'from_h5']
+           'get_warmup_factor', 'print_to_file', 'NormProxy', 'num_bytes', 'from_h5', 'update_dict_',
+           'get_tiling_slices', 'get_nn', 'copy_script']
+
+
+def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
+    """Copy current script.
+
+    Copies the script from where this function is called to ``dst``.
+    By default, nothing happens if this function is not called from within a script.
+
+    Args:
+        dst: Copy destination. Filename or folder.
+        no_script_okay: If ``False`` raise ``FileNotFoundError`` if no script is found.
+        verbose: Whether to print source and destination when copying.
+
+    """
+    if frame is None:
+        current_frame = currentframe()
+        if current_frame:
+            frame = current_frame.f_back
+    if frame is None:
+        raise ValueError('Invalid frame.')
+
+    src = frame.f_globals.get('__file__')
+    if src is None:
+        if not no_script_okay:
+            raise FileNotFoundError('Could not find current script.')
+        return
+
+    if verbose:
+        print(f'Copy `{src}` to `{dst}`.')
+    copy2(src, dst)
 
 
 class Dict(dict):
@@ -105,6 +140,13 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, nd=None, **kw):
             ReLU(inplace=True)
         >>> lookup_nn('relu', inplace=False)
             ReLU()
+        >>> # Dict notation to contain all keyword arguments for calling in `item`. Always called once.
+        ... lookup_nn(dict(relu=dict(inplace=True)), call=False)
+            ReLU(inplace=True)
+        >>> lookup_nn({'NormProxy': {'norm': 'GroupNorm', 'num_groups': 32}}, call=False)
+            NormProxy(GroupNorm, kwargs={'num_groups': 32})
+        >>> lookup_nn({'NormProxy': {'norm': 'GroupNorm', 'num_groups': 32}}, 32, call=True)
+            GroupNorm(32, 32, eps=1e-05, affine=True)
 
     Args:
         item: Lookup item. None is equivalent to `identity`.
@@ -119,7 +161,9 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, nd=None, **kw):
     Returns:
         Looked up item.
     """
-    src = src or nn
+    if src is None:
+        from .. import models
+        src = (nn, models)
     if isinstance(item, tuple):
         if len(item) == 1:
             item, = item
@@ -134,9 +178,25 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, nd=None, **kw):
         l_item = item.lower()
         if nd is not None:
             l_item = replace_ndim(l_item, nd)
-        v = next((getattr(src, i) for i in dir(src) if i.lower() == l_item))
+        if not isinstance(src, (list, tuple)):
+            src = src,
+        v = None
+        for src_ in src:
+            try:
+                v = next((getattr(src_, i) for i in dir(src_) if i.lower() == l_item))
+            except StopIteration:
+                continue
+            break
+        if v is None:
+            raise ValueError(f'Could not find `{item}` in {src}.')
     elif isinstance(item, nn.Module):
         return item
+    elif isinstance(item, dict):
+        assert len(item) == 1
+        key, = item
+        val = item[key]
+        assert isinstance(val, dict)
+        v = lookup_nn(key, src=src, call=False, inplace=inplace, nd=nd)(**val)
     elif isinstance(item, type) and nd is not None:
         v = replace_ndim(item, nd)
     else:
@@ -146,6 +206,10 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, nd=None, **kw):
         kwargs.update(kw)
         v = v(*a, **kwargs)
     return v
+
+
+def get_nn(item: Union[str, 'nn.Module', Type['nn.Module']], src=None, nd=None):
+    return lookup_nn(item, src=src, nd=nd, call=False)
 
 
 class NormProxy:
@@ -294,12 +358,14 @@ def fetch_model(name, map_location=None, **kwargs):
 
     """
     url = name if name.startswith('http') else f'https://celldetection.org/torch/models/{name}.pt'
-    m = load_state_dict_from_url(url, map_location=map_location, **kwargs)
+    m = load_state_dict_from_url(url, map_location=map_location, **kwargs.get('load_state_dict_kwargs', {}))
     if isinstance(m, dict) and 'cd.models' in m.keys():
+        state_dict = m['state_dict']
         from .. import models
         conf = m['cd.models']
-        m = getattr(models, conf['model'])(*conf['a'], **conf['kw'])
-        m.load_state_dict(conf['state_dict'])
+        kw = {**conf.get('kwargs', conf.get('kw', {})), **kwargs}
+        m = getattr(models, conf['model'])(*conf.get('args', conf.get('a', ())), **kw)
+        m.load_state_dict(state_dict)
     return m
 
 
@@ -325,7 +391,7 @@ def random_code_name(chars=4) -> str:
     return ''.join([np.random.choice(b if j % 2 == 0 else a) for j in range(chars)])
 
 
-def random_code_name_dir(directory='./out', chars=6):
+def random_code_name_dir(directory='./out', chars=6, comm=None, root_rank=0):
     """Random code name directory.
 
     Creates random code name and creates a subdirectory with said name under `directory`.
@@ -334,16 +400,24 @@ def random_code_name_dir(directory='./out', chars=6):
     Args:
         directory: Root directory.
         chars: Number of characters for the code name.
+        comm: MPI Comm. If provided, code name and directory is automatically broadcasted to all ranks of `comm`.
+        root_rank: Root rank. Only the root rank creates code name and directory.
 
     Returns:
         Tuple of code name and created directory.
     """
-    try:
-        code_name = random_code_name(chars=chars)
-        out_dir = join(directory, code_name)
-        makedirs(out_dir)
-    except FileExistsError:
-        return random_code_name_dir(directory, chars=chars)
+    rank = code_name = out_dir = None
+    if comm is not None:
+        rank = comm.Get_rank()
+    if rank is None or rank == root_rank:
+        try:
+            code_name = random_code_name(chars=chars)
+            out_dir = join(directory, code_name)
+            makedirs(out_dir)
+        except FileExistsError:
+            return random_code_name_dir(directory, chars=chars)
+    if rank is not None:
+        code_name, out_dir = comm.bcast((code_name, out_dir), root=root_rank)
     return code_name, out_dir
 
 
@@ -910,6 +984,41 @@ class Tiling:
         )
 
 
+def get_tiling_slices(
+        size: Sequence[int],
+        crop_size: Union[int, Sequence[int]],
+        strides: Union[int, Sequence[int]]
+) -> Union[Iterable[slice], Tuple[int]]:
+    """Get tiling slices.
+
+    Args:
+        size: Reference size as tuple.
+        crop_size: Crop size.
+        strides: Strides.
+
+    Returns:
+        Iterable[slice], Tuple[int]:
+            Iterator of tiling slices (each slice defining a tile),
+            Number of tiles per dimension as tuple.
+    """
+    assert isinstance(size, (tuple, list))
+    crop_size = ensure_num_tuple(crop_size, len(size))
+    strides = ensure_num_tuple(strides, len(size))
+    slices, shape = [], []
+    for axis in range(len(size)):
+        if crop_size[axis] >= size[axis]:
+            tl = [size[axis]]
+        else:
+            tl = range(crop_size[axis], max(2, 1 + int(np.ceil(size[axis] / strides[axis]))) * strides[axis],
+                       strides[axis])
+        axis_slices = []
+        for t in tl:
+            stop = min(t, size[axis])
+            axis_slices.append(slice(max(0, stop - crop_size[axis]), stop))
+        slices.append(axis_slices), shape.append(len(tl))
+    return product(*slices), shape
+
+
 def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, create_dataset_kw: dict = None,
           **kwargs):
     """To hdf5 file.
@@ -1106,3 +1215,11 @@ def num_bytes(x: Union[np.ndarray, Tensor]):
     else:
         raise ValueError(f'Could not handle type: {type(x)}')
     return Bytes(bts)
+
+
+def update_dict_(dst, src, override=False, keys: Union[List[str], Tuple[str]] = None):
+    for k, v in src.items():
+        if keys is not None and k not in keys:
+            continue
+        if override or k not in dst:
+            dst[k] = v
