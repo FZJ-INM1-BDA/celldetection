@@ -7,6 +7,7 @@ from . import util
 from . import visualization as vis
 from . import data
 from . import mpi
+from . import callbacks
 from . import optim
 from .data import toydata
 from .data.misc import universal_dict_collate_fn, to_tensor
