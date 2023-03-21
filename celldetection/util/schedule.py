@@ -1,4 +1,5 @@
-from .util import dict_hash, Dict, tweak_module_, lookup_nn
+from .util import dict_hash, Dict, tweak_module_, lookup_nn, print_to_file
+from ..optim import lr_scheduler
 import json
 from itertools import product
 from collections import OrderedDict
@@ -71,8 +72,10 @@ def conf2optimizer(settings: dict, params):
     return conf2call(settings, optim, params=params)
 
 
-def conf2scheduler(settings: dict, optimizer):
-    return conf2call(settings, optim.lr_scheduler, optimizer=optimizer)
+def conf2scheduler(settings: dict, optimizer, origins=None):
+    if origins is None:
+        origins = (lr_scheduler, optim.lr_scheduler)
+    return conf2call(settings, origins, optimizer=optimizer)
 
 
 def conf2augmentation(settings: dict) -> A.Compose:
@@ -90,7 +93,6 @@ def conf2augmentation(settings: dict) -> A.Compose:
           RandomRotate90(always_apply=False, p=0.5),
           Transpose(always_apply=False, p=0.5),
         ], p=1.0, bbox_params=None, keypoint_params=None, additional_targets={})
-
 
     Args:
         settings: Settings dictionary as ``{name: kwargs}``.
@@ -185,6 +187,9 @@ class Config(Dict):
     def to_json(self, filename):
         with open(filename, 'w') as fp:
             json.dump(self.to_dict(), fp)
+
+    def to_txt(self, filename, mode='w', **kwargs):
+        print_to_file(self, filename=filename, mode=mode, **kwargs)
 
     def __str__(self):
         return repr(self)
