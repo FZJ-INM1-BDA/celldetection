@@ -1,5 +1,4 @@
 import numpy as np
-import warnings
 import cv2
 from skimage.measure import regionprops
 from collections import OrderedDict
@@ -67,18 +66,18 @@ def efd(contour, order=10, epsilon=1e-6):
     return np.array(coefficients), np.stack((contour[..., 0, 0] + a0, contour[..., 0, 1] + c0), axis=-1)
 
 
-def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE, flag_fragmented=False,
+def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE, flag_fragmented_inplace=False,
                     raise_fragmented=True, constant=-1) -> dict:
     """Labels to contours.
 
     Notes:
-        - If ``flag_fragmented is True``, ``labels`` may be modified inplace.
+        - If ``flag_fragmented_inplace is True``, ``labels`` may be modified inplace.
 
     Args:
         labels:
         mode:
         method: Contour method. CHAIN_APPROX_NONE must be used if contours are used for CPN.
-        flag_fragmented: Whether to flag fragmented labels. Flagging sets labels that consist of more than one
+        flag_fragmented_inplace: Whether to flag fragmented labels. Flagging sets labels that consist of more than one
             connected component to ``constant``.
         constant: Flagging constant.
         raise_fragmented: Whether to raise ValueError when encountering fragmented labels.
@@ -102,10 +101,11 @@ def labels2contours(labels, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
         try:
             c, = c
         except ValueError as ve:
-            if flag_fragmented:
+            if flag_fragmented_inplace:
                 labels[labels == label] = constant
             elif raise_fragmented:
                 raise ValueError('Object labeled with multiple connected components.')
+            continue
         if len(c) == 1:
             c = np.concatenate((c, c), axis=0)  # min len for other functions to work properly
         contours[label] = c
@@ -191,6 +191,7 @@ def contours2fourier(contours: dict, order=5, dtype=np.float32):
         max_label = np.max(list(contours.keys()))
     else:
         max_label = 0
+
     fouriers = np.zeros((max_label, order, 4), dtype=dtype)
     locations = np.zeros((max_label, 2), dtype=dtype)
     for key, contour in contours.items():
@@ -347,10 +348,9 @@ class CPNTargetGenerator:
         self.flag_fragmented_constant = flag_fragmented_constant
 
         self.labels = None
-        self.reduced_labels = None
         self.distances = None
         self.partials_mask = None
-        self._sampling, self._contours, self._fourier, self._locations, self._sampled_contours = (None,) * 5
+        self._sampling = self._contours = self._fourier = self._locations = self._sampled_contours = None
         self._sampled_sizes = None
         self._reset()
 
@@ -362,7 +362,7 @@ class CPNTargetGenerator:
         self._sampled_contours = None
         self._sampled_sizes = None
 
-    def feed(self, labels, border=1, min_area=3, max_area=None):
+    def feed(self, labels, border=1, min_area=1, max_area=None):
         """
 
         Notes:
@@ -386,8 +386,13 @@ class CPNTargetGenerator:
         self.distances, labels = labels2distances(labels)
         mask_labels_by_distance_(labels, self.distances, self.max_bg_dist, self.min_fg_dist)
 
-        self.reduced_labels = labels.max(2)
         self._reset()
+
+    @property
+    def reduced_labels(self):
+        if self.flag_fragmented:
+            _ = self.contours  # Since labels2contours may filter instances, it has to be done before returning labels
+        return self.labels.max(2)
 
     @property
     def sampling(self):
@@ -403,8 +408,8 @@ class CPNTargetGenerator:
     @property
     def contours(self):
         if self._contours is None:
-            self._contours: dict = labels2contours(self.labels, flag_fragmented=self.flag_fragmented,
-                                                   constant=self.flag_fragmented_constant)
+            self._contours: dict = labels2contours(self.labels, flag_fragmented_inplace=self.flag_fragmented,
+                                                   constant=self.flag_fragmented_constant, raise_fragmented=False)
         return self._contours
 
     @property
