@@ -71,7 +71,6 @@ MPI Operations
 --------------
 """
 
-
 import numpy as np
 
 _ERR = None
@@ -113,15 +112,22 @@ def get_hosts(comm, return_ranks=False):
     return res
 
 
-@assert_mpi
-def get_comm(comm=None, return_ranks=True):
-    comm = comm or MPI.COMM_WORLD
-    res = comm,
-    if return_ranks:
-        rank = comm.Get_rank()
-        ranks = comm.Get_size()
-        res += rank, ranks
-    return res
+if MPI:
+    @assert_mpi
+    def get_comm(comm=None, return_ranks=True):
+        comm = comm or MPI.COMM_WORLD
+        res = comm,
+        if return_ranks:
+            rank = comm.Get_rank()
+            ranks = comm.Get_size()
+            res += rank, ranks
+        return res
+else:
+    def get_comm(comm=None, return_ranks=True):  # dummy
+        if comm is not None:
+            raise NotImplementedError
+        if return_ranks:
+            return None, 0, 1
 
 
 @assert_mpi
