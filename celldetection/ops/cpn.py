@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torch import Tensor
-from typing import Union, Tuple, List, Dict
+from typing import Tuple, List, Dict
 
 
 def rel_location2abs_location(locations, cache: Dict[str, Tensor] = None, cache_size: int = 16):
@@ -215,3 +215,35 @@ def resolve_refinement_buckets(samplings, num_buckets):
         (b % num_buckets, refinement_bucket_weight(b, base_index)),
         (c % num_buckets, refinement_bucket_weight(c, base_index))
     )
+
+
+def remove_border_contours(contours, size, padding=1, top=True, right=True, bottom=True, left=True):
+    """Remove border contours.
+
+    Remove contours that touch border regions.
+
+    Args:
+        contours: Contours as ``Tensor[num_contours, num_points, 2]``.
+        size: Context size.
+        padding: Padding. Determines the thickness of the border region. ``padding=1`` removes all contours that overlap
+            with the outer 1px frame.
+        top: Whether to test top border.
+        right: Whether to test right border.
+        bottom: Whether to test bottom border.
+        left: Whether to test left border.
+
+    Returns:
+        Keep mask as ``Tensor[num_contours]``.
+    """
+    h, w = size[:2]
+    x, y = contours[..., 0], contours[..., 1]
+    keep = torch.ones(len(contours), dtype=torch.bool, device=contours.device)
+    if top:
+        keep = keep & (y > padding).all(1)
+    if right:
+        keep = keep & (x < (w - padding)).all(1)
+    if bottom:
+        keep = keep & (y < (h - padding)).all(1)
+    if left:
+        keep = keep & (x > padding).all(1)
+    return keep
