@@ -3,37 +3,39 @@ import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
 from collections import OrderedDict
-from typing import Dict, List
+from typing import Dict, List, Union
 import warnings
-from ..util.util import add_to_loss_dict, reduce_loss_dict, fetch_model
-from .commons import ScaledTanh, ReadOut
+from pytorch_lightning.core.mixins import HyperparametersMixin
+from ..util.util import add_to_loss_dict, reduce_loss_dict, fetch_model, update_dict_
+from .commons import ScaledTanh, ReadOut, Fuse2d
 from .loss import IoULoss, BoxNpllLoss
 from ..ops.commons import downsample_labels
 from ..ops import boxes as bx
 from ..ops.cpn import rel_location2abs_location, fouriers2contours, scale_contours, scale_fourier, batched_box_nmsi, \
     order_weighting, resolve_refinement_buckets
 from .unet import U22, SlimU22, WideU22, ResUNet, ResNet50UNet, ResNet34UNet, ResNet18UNet, ResNet101UNet, \
-    ResNeXt50UNet, ResNeXt101UNet, ResNet152UNet, ResNeXt152UNet
+    ResNeXt50UNet, ResNeXt101UNet, ResNet152UNet, ResNeXt152UNet, ConvNeXtTinyUNet, ConvNeXtSmallUNet, \
+    ConvNeXtLargeUNet, ConvNeXtBaseUNet, SmpUNet, TimmUNet
 from .fpn import ResNet34FPN, ResNet18FPN, ResNet50FPN, ResNet101FPN, ResNet152FPN, ResNeXt50FPN, \
     ResNeXt101FPN, ResNeXt152FPN, WideResNet50FPN, WideResNet101FPN, MobileNetV3LargeFPN, MobileNetV3SmallFPN
+from .manet import MaNet, SmpMaNet, TimmMaNet
 
-__all__ = [
-    'CPN',
-    'CpnSlimU22', 'CpnU22', 'CpnWideU22',
-    'CpnResNet50UNet', 'CpnResNet34UNet', 'CpnResNet18UNet', 'CpnResNet101UNet', 'CpnResNeXt50UNet',
-    'CpnResNet18FPN', 'CpnResNet34FPN', 'CpnResNet50FPN',
-    'CpnResNet101FPN', 'CpnResNet152FPN', 'CpnResNeXt50FPN', 'CpnResNeXt101FPN', 'CpnResNeXt152FPN',
-    'CpnWideResNet50FPN', 'CpnWideResNet101FPN', 'CpnMobileNetV3LargeFPN', 'CpnMobileNetV3SmallFPN',
-    'CpnResUNet', 'CpnResNet152UNet', 'CpnResNeXt152UNet', 'CpnResNeXt101UNet'
-]
+__all__ = []
+
+
+def register(obj):
+    __all__.append(obj.__name__)
+    return obj
 
 
 def resolve_batch_index(inputs: dict, n, b) -> dict:
-    outputs = OrderedDict()
+    outputs = OrderedDict({k: (None if v is None else []) for k, v in inputs.items()})
     for batch_index in range(n):
         sel = b == batch_index
         for k, v in inputs.items():
-            outputs[k] = None if v is None else v[sel]
+            o = outputs[k]
+            if o is not None:
+                o.append(v[sel])
     return outputs
 
 
@@ -47,16 +49,16 @@ def resolve_keep_indices(inputs: dict, keep: list) -> dict:
     return outputs
 
 
-def local_refinement(det_indices, refinement, num_loops, buckets, original_size, sampling, b):
+def local_refinement(det_indices, refinement, num_loops, num_buckets, original_size, sampling, b):
     for _ in torch.arange(0, num_loops):
         det_indices = torch.round(det_indices.detach())  # Tensor[num_contours, samples, 2]
         det_indices[..., 0].clamp_(0, original_size[1] - 1)
         det_indices[..., 1].clamp_(0, original_size[0] - 1)
         indices = det_indices.detach().long()  # Tensor[-1, samples, 2]
-        if buckets == 1:
+        if num_buckets == 1:
             responses = refinement[b[:, None], :, indices[:, :, 1], indices[:, :, 0]]  # Tensor[-1, samples, 2]
         else:
-            buckets = resolve_refinement_buckets(sampling, buckets)
+            buckets = resolve_refinement_buckets(sampling, num_buckets)
             responses = None
             for bucket_indices, bucket_weights in buckets:
                 bckt_idx = torch.stack((bucket_indices * 2, bucket_indices * 2 + 1), -1)
@@ -70,6 +72,27 @@ def local_refinement(det_indices, refinement, num_loops, buckets, original_size,
     return det_indices
 
 
+def _resolve_channels(encoder_channels, backbone_channels, keys: Union[list, tuple, str], encoder_prefix: str):
+    channels = 0
+    reference = None
+    if not isinstance(keys, (list, tuple)):
+        keys = [keys]
+    for k in keys:
+        if k.startswith(encoder_prefix):
+            channels += encoder_channels[int(k[len(encoder_prefix):])]
+        else:
+            channels += backbone_channels[int(k)]
+        if reference is None:
+            reference = channels
+    return channels, reference, len(keys)
+
+
+def _resolve_features(features, keys):
+    if isinstance(keys, (tuple, list)):
+        return [features[k] for k in keys]
+    return features[keys]
+
+
 class CPNCore(nn.Module):
     def __init__(
             self,
@@ -81,6 +104,9 @@ class CPNCore(nn.Module):
             refinement_margin: float = 3.,
             uncertainty_head=False,
             contour_features='1',
+            location_features='1',
+            uncertainty_features='1',
+            score_features='1',
             refinement_features='0',
             contour_head_channels=None,
             contour_head_stride=1,
@@ -88,120 +114,154 @@ class CPNCore(nn.Module):
             refinement_head_stride=1,
             refinement_interpolation='bilinear',
             refinement_buckets=1,
-            score_encoder_features=False,
-            refinement_encoder_features=False,
+            refinement_full_res=True,
+            encoder_channels=None,
+            **kwargs,
     ):
         super().__init__()
         self.order = order
         self.backbone = backbone
-        self.refinement_features = refinement_features
-        self.contour_features = contour_features
         self.refinement_interpolation = refinement_interpolation
         assert refinement_buckets >= 1
         self.refinement_buckets = refinement_buckets
-        if isinstance(backbone_channels, int):
-            contour_head_input_channels = refinement_head_input_channels = backbone_channels
-        elif isinstance(backbone_channels, (tuple, list)):
-            contour_head_input_channels = backbone_channels[int(contour_features)]
-            refinement_head_input_channels = backbone_channels[int(refinement_features)]
-        elif isinstance(backbone_channels, dict):
-            contour_head_input_channels = backbone_channels[contour_features]
-            refinement_head_input_channels = backbone_channels[refinement_features]
-        else:
-            raise ValueError('Did not understand type of backbone_channels')
+
+        if encoder_channels is None:
+            encoder_channels = backbone_channels  # assuming same channels
+        channels = encoder_channels, backbone_channels
+        kw = {'encoder_prefix': kwargs.get('encoder_prefix', 'encoder.')}
+        self.contour_features = contour_features
+        self.location_features = location_features
+        self.score_features = score_features
+        self.refinement_features = refinement_features
+        self.uncertainty_features = uncertainty_features
+        self.refinement_full_res = refinement_full_res
+        fourier_channels, fourier_channels_, num_fourier_inputs = _resolve_channels(*channels, contour_features, **kw)
+        loc_channels, loc_channels_, num_loc_inputs = _resolve_channels(*channels, location_features, **kw)
+        sco_channels, sco_channels_, num_score_inputs = _resolve_channels(*channels, score_features, **kw)
+        ref_channels, ref_channels_, num_ref_inputs = _resolve_channels(*channels, refinement_features, **kw)
+        unc_channels, unc_channels_, num_unc_inputs = _resolve_channels(*channels, uncertainty_features, **kw)
+        fuse_kw = kwargs.get('fuse_kwargs', {})
+
+        # Score
+        self.score_fuse = Fuse2d(sco_channels, sco_channels_, **fuse_kw) if num_score_inputs > 1 else None
         self.score_head = ReadOut(
-            contour_head_input_channels, score_channels,
-            kernel_size=3,
-            padding=1,
+            sco_channels_, score_channels,
+            kernel_size=kwargs.get('kernel_size_score', 7),
+            padding=kwargs.get('kernel_size_score', 7) // 2,
             channels_mid=contour_head_channels,
             stride=contour_head_stride
         )
-        self.score_logsoft = nn.LogSoftmax(dim=1) if score_channels == 2 else nn.Identity()
+
+        # Location
+        self.location_fuse = Fuse2d(loc_channels, loc_channels_, **fuse_kw) if num_loc_inputs > 1 else None
         self.location_head = ReadOut(
-            contour_head_input_channels, 2,
-            kernel_size=7,
-            padding=3,
+            loc_channels_, 2,
+            kernel_size=kwargs.get('kernel_size_location', 7),
+            padding=kwargs.get('kernel_size_location', 7) // 2,
             channels_mid=contour_head_channels,
             stride=contour_head_stride
         )
+
+        # Fourier
+        self.fourier_fuse = Fuse2d(fourier_channels, fourier_channels_, **fuse_kw) if num_fourier_inputs > 1 else None
         self.fourier_head = ReadOut(
-            contour_head_input_channels, order * 4,
-            kernel_size=7,
-            padding=3,
+            fourier_channels_, order * 4,
+            kernel_size=kwargs.get('kernel_size_fourier', 7),
+            padding=kwargs.get('kernel_size_fourier', 7) // 2,
             channels_mid=contour_head_channels,
             stride=contour_head_stride
         )
-        self.uncertainty_head = ReadOut(
-            contour_head_input_channels, 4,
-            kernel_size=7,
-            padding=3,
-            channels_mid=contour_head_channels,
-            stride=contour_head_stride,
-            activation='sigmoid'
-        ) if uncertainty_head else None
+
+        # Uncertainty
+        if uncertainty_head:
+            self.uncertainty_fuse = Fuse2d(unc_channels, unc_channels_, **fuse_kw) if num_unc_inputs > 1 else None
+            self.uncertainty_head = ReadOut(
+                unc_channels_, 4,
+                kernel_size=kwargs.get('kernel_size_uncertainty', 7),
+                padding=kwargs.get('kernel_size_uncertainty', 7) // 2,
+                channels_mid=contour_head_channels,
+                stride=contour_head_stride,
+                final_activation='sigmoid'
+            )
+        else:
+            self.uncertainty_fuse = self.uncertainty_head = None
+
+        # Refinement
         if refinement:
+            self.refinement_fuse = Fuse2d(ref_channels, ref_channels_, **fuse_kw) if num_ref_inputs > 1 else None
             self.refinement_head = ReadOut(
-                refinement_head_input_channels, 2 * refinement_buckets,
-                kernel_size=7,
-                padding=3,
+                ref_channels_, 2 * refinement_buckets,
+                kernel_size=kwargs.get('kernel_size_refinement', 7),
+                padding=kwargs.get('kernel_size_refinement', 7) // 2,
                 final_activation=ScaledTanh(refinement_margin),
                 channels_mid=refinement_head_channels,
                 stride=refinement_head_stride
             )
-            self.refinement_margin = 1.  # legacy
         else:
-            self.refinement_head = None
-            self.refinement_margin = None
-
-        self.score_encoder_features = score_encoder_features
-        self.refinement_encoder_features = refinement_encoder_features
+            self.refinement_fuse = self.refinement_head = None
 
     def forward(self, inputs):
         features = self.backbone(inputs)
-        encoder_features = None
+
         if isinstance(features, torch.Tensor):
-            scores_features = contour_features = refinement_features = features
+            score_features = fourier_features = location_features = unc_features = ref_features = features
         else:
-            scores_features = contour_features = features[self.contour_features]
-            refinement_features = features[self.refinement_features]
-            encoder_features = features.get('features')
+            score_features = _resolve_features(features, self.score_features)
+            fourier_features = _resolve_features(features, self.contour_features)
+            location_features = _resolve_features(features, self.location_features)
+            unc_features = _resolve_features(features, self.uncertainty_features)
+            ref_features = _resolve_features(features, self.refinement_features)
 
-        if self.score_encoder_features:
-            assert encoder_features is not None, 'Backbone does not support encoder skip connections to heads.'
-            scores_features = torch.cat((scores_features, encoder_features[self.contour_features]))
+        # Scores
+        if self.score_fuse is not None:
+            score_features = self.score_fuse(score_features)
+        scores = self.score_head(score_features)
 
-        scores = self.score_head(scores_features)
-        locations = self.location_head(contour_features)
-        fourier = self.fourier_head(contour_features)
+        # Locations
+        if self.location_fuse is not None:
+            location_features = self.location_fuse(location_features)
+        locations = self.location_head(location_features)
 
-        uncertainty = None
+        # Fourier
+        if self.fourier_fuse is not None:
+            fourier_features = self.fourier_fuse(fourier_features)
+        fourier = self.fourier_head(fourier_features)
+
+        # Uncertainty
         if self.uncertainty_head is not None:
-            uncertainty = self.uncertainty_head(contour_features)
+            if self.uncertainty_fuse is not None:
+                unc_features = self.uncertainty_fuse(unc_features)
+            uncertainty = self.uncertainty_head(unc_features)
+        else:
+            uncertainty = None
 
-        refinement = None
+        # Refinement
         if self.refinement_head is not None:
-
-            if self.refinement_encoder_features:
-                assert encoder_features is not None, 'Backbone does not support encoder skip connections to heads.'
-                refinement_features = torch.cat((refinement_features, encoder_features[self.refinement_features]))
-
-            refinement = self.refinement_head(refinement_features) * self.refinement_margin
+            if self.refinement_fuse is not None:
+                ref_features = self.refinement_fuse(ref_features)
+            if self.refinement_full_res:
+                ref_features = F.interpolate(ref_features, inputs.shape[-2:], mode=self.refinement_interpolation,
+                                             align_corners=False)
+            refinement = self.refinement_head(ref_features)
             if refinement.shape[-2:] != inputs.shape[-2:]:  # 337 ns
                 # bilinear: 3.79 ms for (128, 128) to (512, 512)
                 # bicubic: 11.5 ms for (128, 128) to (512, 512)
                 refinement = F.interpolate(refinement, inputs.shape[-2:],
                                            mode=self.refinement_interpolation, align_corners=False)
+        else:
+            refinement = None
 
         return scores, locations, refinement, fourier, uncertainty
 
 
-class CPN(nn.Module):
+@register
+class CPN(nn.Module, HyperparametersMixin):
     def __init__(
             self,
             backbone: nn.Module,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             certainty_thresh: float = None,
             samples: int = 32,
             classes: int = 2,
@@ -210,11 +270,16 @@ class CPN(nn.Module):
             refinement_iterations: int = 4,
             refinement_margin: float = 3.,
             refinement_buckets: int = 1,
+
             contour_features='1',
+            location_features='1',
+            uncertainty_features='1',
+            score_features='1',
             refinement_features='0',
+
             uncertainty_head=False,
             uncertainty_nms=False,
-            uncertainty_factor=10.,
+            uncertainty_factor=7.,
 
             contour_head_channels=None,
             contour_head_stride=1,
@@ -223,8 +288,7 @@ class CPN(nn.Module):
             refinement_head_stride=1,
             refinement_interpolation='bilinear',
 
-            score_encoder_features=False,
-            refinement_encoder_features=False,
+            **kwargs
     ):
         """CPN base class.
 
@@ -285,7 +349,6 @@ class CPN(nn.Module):
         self.score_target_dtype = None
         self.certainty_thresh = certainty_thresh
         self.uncertainty_nms = uncertainty_nms
-        self.uncertainty_factor = uncertainty_factor
 
         if not hasattr(backbone, 'out_channels'):
             raise ValueError('Backbone should have an attribute out_channels that states the channels of its output.')
@@ -294,10 +357,13 @@ class CPN(nn.Module):
             backbone=backbone,
             backbone_channels=backbone.out_channels,
             order=order,
-            score_channels=classes,
+            score_channels=self.score_channels,
             refinement=refinement,
             refinement_margin=refinement_margin,
             contour_features=contour_features,
+            location_features=location_features,
+            uncertainty_features=uncertainty_features,
+            score_features=score_features,
             refinement_features=refinement_features,
             contour_head_channels=contour_head_channels,
             contour_head_stride=contour_head_stride,
@@ -305,9 +371,8 @@ class CPN(nn.Module):
             refinement_head_stride=refinement_head_stride,
             refinement_interpolation=refinement_interpolation,
             refinement_buckets=refinement_buckets,
-            score_encoder_features=score_encoder_features,
-            refinement_encoder_features=refinement_encoder_features,
             uncertainty_head=uncertainty_head,
+            **kwargs
         )
 
         if isinstance(order_weights, bool):
@@ -332,7 +397,8 @@ class CPN(nn.Module):
             'fourier': 1.,  # note: fourier has order specific weights
             'location': 1.,
             'contour': 3.,
-            'score': 1.,
+            'score_bg': 1.,
+            'score_fg': 1.,
             'refinement': 1.,
             'boxes': .88,
             'iou': 1.,
@@ -374,6 +440,7 @@ class CPN(nn.Module):
             'refinement': None,
             'boxes': None,
             'iou': None,
+            'uncertainty': None,
         })
 
         bg_masks = labels == 0
@@ -384,16 +451,20 @@ class CPN(nn.Module):
         fg_scores = raw_scores[fg_n, :, fg_y, fg_x]  # Tensor[-1, classes]
         bg_scores = raw_scores[bg_n, :, bg_y, bg_x]  # Tensor[-1, classes]
         fg_indices = labels[fg_n, fg_y, fg_x].long() - 1  # -1 because fg labels start at 1, but indices at 0
+        fg_num = fg_indices.numel()
+        bg_num = bg_scores.numel()
 
         if box_targets is not None:
-            box_targets = box_targets[b, fg_indices]
+            if fg_num:
+                box_targets = box_targets[b, fg_indices]
         elif not self._warn_iou and self.objectives.get('iou') is not None and self.samples < 32:
             self._warn_iou = True
             warnings.warn('The iou loss option of the CPN is enabled, but the `samples` setting is rather low. '
                           'This may impair detection performance. '
                           'Increase `samples`, provide box targets manually or set model.objectives["iou"] = False.')
-        if contour_targets is not None:
+        if fg_num and contour_targets is not None:
             c_tar = contour_targets[b, fg_indices]  # Tensor[num_pixels, samples, 2]
+
             if box_targets is None:
                 box_targets = bx.contours2boxes(c_tar, axis=1)
 
@@ -403,19 +474,24 @@ class CPN(nn.Module):
             else:
                 self.score_target_dtype = fg_scores.dtype
 
-        if fg_scores.numel() > 0:
+        if fg_num:
             if class_targets is None:
-                ones = torch.broadcast_tensors(torch.ones((), dtype=self.score_targets_dtype, device=fg_scores.device),
+                ones = torch.broadcast_tensors(torch.ones((), dtype=self.score_target_dtype, device=fg_scores.device),
                                                fg_scores[..., 0])[0]
             else:
-                ones = class_targets[b, fg_indices].to(self.score_targets_dtype)
-            add_to_loss_dict(losses, 'score', objectives['score'](fg_scores, ones), self.weights['score'])
-        if bg_scores.numel() > 0:
-            zeros = torch.broadcast_tensors(torch.zeros((), dtype=self.score_targets_dtype, device=bg_scores.device),
-                                            bg_scores[..., 0])[0]
-            add_to_loss_dict(losses, 'score', objectives['score'](bg_scores, zeros), self.weights['score'])
+                ones = class_targets[b, fg_indices].to(self.score_target_dtype)
+            if self.score_channels == 1:
+                fg_scores = torch.squeeze(fg_scores, 1)
+            add_to_loss_dict(losses, 'score', objectives['score'](fg_scores, ones), self.weights['score_fg'])
 
-        if fg_indices.numel() > 0:
+        if bg_num:
+            zeros = torch.broadcast_tensors(torch.zeros((), dtype=self.score_target_dtype, device=bg_scores.device),
+                                            bg_scores[..., 0])[0]
+            if self.score_channels == 1:
+                bg_scores = torch.squeeze(bg_scores, 1)
+            add_to_loss_dict(losses, 'score', objectives['score'](bg_scores, zeros), self.weights['score_bg'])
+
+        if fg_num:
             if fourier_targets is not None:
                 f_tar = fourier_targets[b, fg_indices]  # Tensor[num_pixels, order, 4]
                 add_to_loss_dict(losses, 'fourier',
@@ -437,9 +513,10 @@ class CPN(nn.Module):
                     add_to_loss_dict(losses, 'refinement', objectives['refinement'](refined_contours, cc_tar),
                                      self.weights['refinement'])
 
-                if uncertainty is not None:
+                if (uncertainty is not None and boxes.nelement() > 0 and box_targets is not None and
+                        box_targets.nelement() > 0):
                     add_to_loss_dict(losses, 'uncertainty',
-                                     objectives['contour'](uncertainty, boxes.detach(), box_targets),
+                                     objectives['uncertainty'](uncertainty, boxes.detach(), box_targets),
                                      self.weights['uncertainty'])
 
             if box_targets is not None:
@@ -454,7 +531,8 @@ class CPN(nn.Module):
             self,
             inputs,
             targets: Dict[str, Tensor] = None,
-            nms=True
+            nms=True,
+            **kwargs
     ):
         # Presets
         original_size = inputs.shape[-2:]
@@ -462,9 +540,18 @@ class CPN(nn.Module):
         # Core
         scores, locations, refinement, fourier, uncertainty = self.core(inputs)
 
+        # Apply optional score bounds
+        scores_upper_bound = kwargs.get('scores_upper_bound')
+        scores_lower_bound = kwargs.get('scores_lower_bound')
+        if scores_upper_bound is not None:
+            scores = torch.minimum(scores, scores_upper_bound)
+        if scores_lower_bound is not None:
+            scores = torch.maximum(scores, scores_lower_bound)
+
         # Scores
         raw_scores = scores
         if self.score_channels == 1:
+            scores = torch.sigmoid(scores)
             classes = torch.squeeze((scores > self.score_thresh).long(), 1)
         elif self.score_channels == 2:
             scores = F.softmax(scores, dim=1)[:, 1:2]
@@ -541,7 +628,7 @@ class CPN(nn.Module):
             if self.training and num_loops > 1:
                 num_loops = torch.randint(low=1, high=num_loops + 1, size=())
             selected_contours = local_refinement(
-                selected_contour_proposals, refinement, num_loops=num_loops, buckets=self.core.refinement_buckets,
+                selected_contour_proposals, refinement, num_loops=num_loops, num_buckets=self.core.refinement_buckets,
                 original_size=original_size, sampling=sampling, b=b
             )
         else:
@@ -558,7 +645,7 @@ class CPN(nn.Module):
 
         # Loss
         loss, losses = None, None
-        if self.training:
+        if self.training or targets is not None:
             loss, losses = self.compute_loss(
                 uncertainty=selected_uncertainties,
                 fourier=selected_fourier,
@@ -590,6 +677,7 @@ class CPN(nn.Module):
             box_uncertainties=selected_uncertainties,
         )
         outputs = resolve_batch_index(outputs, inputs.shape[0], b=b)
+
         if not self.training and nms:
             if self.uncertainty_nms and outputs['box_uncertainties'] is not None:
                 nms_weights = [s * (1. - u.mean(1)) for s, u in zip(outputs['scores'], outputs['box_uncertainties'])]
@@ -639,13 +727,14 @@ def _make_cpn_doc(title, text, backbone):
     """
 
 
+@register
 class CpnU22(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -668,6 +757,7 @@ class CpnU22(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with U-Net 22 backbone.',
@@ -676,13 +766,14 @@ class CpnU22(CPN):
     )
 
 
+@register
 class CpnResUNet(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -705,6 +796,7 @@ class CpnResUNet(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with Residual U-Net backbone.',
@@ -713,13 +805,14 @@ class CpnResUNet(CPN):
     )
 
 
+@register
 class CpnSlimU22(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -742,6 +835,7 @@ class CpnSlimU22(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with Slim U-Net 22 backbone.',
@@ -751,13 +845,14 @@ class CpnSlimU22(CPN):
     )
 
 
+@register
 class CpnWideU22(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -780,6 +875,7 @@ class CpnWideU22(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with Wide U-Net 22 backbone.',
@@ -789,13 +885,14 @@ class CpnWideU22(CPN):
     )
 
 
+@register
 class CpnResNeXt101UNet(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -819,6 +916,7 @@ class CpnResNeXt101UNet(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNeXt 101 U-Net backbone.',
@@ -827,13 +925,14 @@ class CpnResNeXt101UNet(CPN):
     )
 
 
+@register
 class CpnResNeXt152UNet(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -857,6 +956,7 @@ class CpnResNeXt152UNet(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNeXt 152 U-Net backbone.',
@@ -865,13 +965,14 @@ class CpnResNeXt152UNet(CPN):
     )
 
 
+@register
 class CpnResNet152UNet(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -895,6 +996,7 @@ class CpnResNet152UNet(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 152 U-Net backbone.',
@@ -903,13 +1005,14 @@ class CpnResNet152UNet(CPN):
     )
 
 
+@register
 class CpnResNet101UNet(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -933,6 +1036,7 @@ class CpnResNet101UNet(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 101 U-Net backbone.',
@@ -941,13 +1045,14 @@ class CpnResNet101UNet(CPN):
     )
 
 
+@register
 class CpnResNeXt50UNet(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -971,6 +1076,7 @@ class CpnResNeXt50UNet(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNeXt 50 U-Net backbone.',
@@ -979,13 +1085,14 @@ class CpnResNeXt50UNet(CPN):
     )
 
 
+@register
 class CpnResNet50UNet(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1009,6 +1116,7 @@ class CpnResNet50UNet(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 50 U-Net backbone.',
@@ -1017,13 +1125,14 @@ class CpnResNet50UNet(CPN):
     )
 
 
+@register
 class CpnResNet34UNet(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1047,6 +1156,7 @@ class CpnResNet34UNet(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 34 U-Net backbone.',
@@ -1055,13 +1165,14 @@ class CpnResNet34UNet(CPN):
     )
 
 
+@register
 class CpnResNet18UNet(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1085,6 +1196,7 @@ class CpnResNet18UNet(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 18 U-Net backbone.',
@@ -1093,13 +1205,14 @@ class CpnResNet18UNet(CPN):
     )
 
 
+@register
 class CpnResNet18FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1122,6 +1235,7 @@ class CpnResNet18FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 18 FPN backbone.',
@@ -1130,13 +1244,14 @@ class CpnResNet18FPN(CPN):
     )
 
 
+@register
 class CpnResNet34FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1159,6 +1274,7 @@ class CpnResNet34FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 34 FPN backbone.',
@@ -1167,13 +1283,14 @@ class CpnResNet34FPN(CPN):
     )
 
 
+@register
 class CpnResNet50FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1196,6 +1313,7 @@ class CpnResNet50FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 50 FPN backbone.',
@@ -1204,13 +1322,14 @@ class CpnResNet50FPN(CPN):
     )
 
 
+@register
 class CpnResNet101FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1233,6 +1352,7 @@ class CpnResNet101FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 101 FPN backbone.',
@@ -1241,13 +1361,14 @@ class CpnResNet101FPN(CPN):
     )
 
 
+@register
 class CpnResNet152FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1270,6 +1391,7 @@ class CpnResNet152FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNet 152 FPN backbone.',
@@ -1278,13 +1400,14 @@ class CpnResNet152FPN(CPN):
     )
 
 
+@register
 class CpnResNeXt50FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1307,6 +1430,7 @@ class CpnResNeXt50FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNeXt 50 FPN backbone.',
@@ -1315,13 +1439,14 @@ class CpnResNeXt50FPN(CPN):
     )
 
 
+@register
 class CpnResNeXt101FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1344,6 +1469,7 @@ class CpnResNeXt101FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNeXt 101 FPN backbone.',
@@ -1352,13 +1478,14 @@ class CpnResNeXt101FPN(CPN):
     )
 
 
+@register
 class CpnResNeXt152FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1381,6 +1508,7 @@ class CpnResNeXt152FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with ResNeXt 152 FPN backbone.',
@@ -1389,13 +1517,14 @@ class CpnResNeXt152FPN(CPN):
     )
 
 
+@register
 class CpnWideResNet50FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1418,6 +1547,7 @@ class CpnWideResNet50FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with Wide ResNet 50 FPN backbone.',
@@ -1426,13 +1556,14 @@ class CpnWideResNet50FPN(CPN):
     )
 
 
+@register
 class CpnWideResNet101FPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1455,6 +1586,7 @@ class CpnWideResNet101FPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with Wide ResNet 101 FPN backbone.',
@@ -1463,13 +1595,14 @@ class CpnWideResNet101FPN(CPN):
     )
 
 
+@register
 class CpnMobileNetV3SmallFPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1492,6 +1625,7 @@ class CpnMobileNetV3SmallFPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with Small MobileNetV3 FPN backbone.',
@@ -1500,13 +1634,14 @@ class CpnMobileNetV3SmallFPN(CPN):
     )
 
 
+@register
 class CpnMobileNetV3LargeFPN(CPN):
     def __init__(
             self,
             in_channels: int,
             order: int = 5,
             nms_thresh: float = .2,
-            score_thresh: float = .5,
+            score_thresh: float = .9,
             samples: int = 32,
             classes: int = 2,
             refinement: bool = True,
@@ -1529,11 +1664,376 @@ class CpnMobileNetV3LargeFPN(CPN):
             refinement_buckets=refinement_buckets,
             **kwargs
         )
+        self.save_hyperparameters()
 
     __init__.__doc__ = _make_cpn_doc(
         'Contour Proposal Network with Large MobileNetV3 FPN backbone.',
         'A Contour Proposal Network that uses a Large MobileNetV3 Feature Pyramid Network as a backbone.',
         'cd.models.MobileNetV3LargeFPN'
+    )
+
+
+@register
+class CpnMiTB5MaNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .9,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs: dict = None,
+            **kwargs
+    ):
+        super().__init__(
+            backbone=MaNet(in_channels=in_channels, encoder_name="mit_b5", **(backbone_kwargs or {})),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+        self.save_hyperparameters()
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with Mix Transformer encoder and Multi-Scale Attention Network decoder as backbone.',
+        'A Contour Proposal Network that uses a Mix Transformer B5 encoder with the Multi-Scale Attention Network '
+        'decoder as a backbone.',
+        'cd.models.CpnMiTB5MaNet'
+    )
+
+
+@register
+class CpnConvNeXtSmallUNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .9,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        super().__init__(
+            backbone=ConvNeXtSmallUNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+        self.save_hyperparameters()
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with ConvNeXt Small U-Net backbone.',
+        'A Contour Proposal Network that uses a ConvNeXt Small U-Net as a backbone.',
+        'cd.models.ConvNeXtSmallUNet'
+    )
+
+
+@register
+class CpnConvNeXtLargeUNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .9,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        super().__init__(
+            backbone=ConvNeXtLargeUNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+        self.save_hyperparameters()
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with ConvNeXt Large U-Net backbone.',
+        'A Contour Proposal Network that uses a ConvNeXt Large U-Net as a backbone.',
+        'cd.models.ConvNeXtLargeUNet'
+    )
+
+
+@register
+class CpnConvNeXtBaseUNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .9,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        super().__init__(
+            backbone=ConvNeXtBaseUNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+        self.save_hyperparameters()
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with ConvNeXt Base U-Net backbone.',
+        'A Contour Proposal Network that uses a ConvNeXt Base U-Net as a backbone.',
+        'cd.models.ConvNeXtBaseUNet'
+    )
+
+
+@register
+class CpnConvNeXtTinyUNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .9,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        super().__init__(
+            backbone=ConvNeXtTinyUNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+        self.save_hyperparameters()
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with ConvNeXt Tiny U-Net backbone.',
+        'A Contour Proposal Network that uses a ConvNeXt Tiny U-Net as a backbone.',
+        'cd.models.ConvNeXtTinyUNet'
+    )
+
+
+@register
+class CpnSmpMaNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .9,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        update_dict_(backbone_kwargs, dict(model_name=kwargs.get('model_name')))
+        super().__init__(
+            backbone=SmpMaNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+        self.save_hyperparameters()
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with MA-Net and a backbone from the smp package.',
+        'A Contour Proposal Network that uses MA-Net and a backbone from the smp package.',
+        'cd.models.SmpMaNet'
+    )
+
+
+@register
+class CpnSmpUNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .9,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        update_dict_(backbone_kwargs, dict(model_name=kwargs.get('model_name')))
+        super().__init__(
+            backbone=SmpUNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+        self.save_hyperparameters()
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with a U-Net and a backbone from the smp package.',
+        'A Contour Proposal Network that uses a U-Net and a backbone from the smp package.',
+        'cd.models.SmpUNet'
+    )
+
+
+@register
+class CpnTimmUNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .9,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        update_dict_(backbone_kwargs, dict(model_name=kwargs.get('model_name')))
+        super().__init__(
+            backbone=TimmUNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+        self.save_hyperparameters()
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with a U-Net and a backbone from the timm package.',
+        'A Contour Proposal Network that uses a U-Net and a backbone from the timm package.',
+        'cd.models.TimmUNet'
+    )
+
+
+@register
+class CpnTimmMaNet(CPN):
+    def __init__(
+            self,
+            in_channels: int,
+            order: int = 5,
+            nms_thresh: float = .2,
+            score_thresh: float = .9,
+            samples: int = 32,
+            classes: int = 2,
+            refinement: bool = True,
+            refinement_iterations: int = 4,
+            refinement_margin: float = 3.,
+            refinement_buckets: int = 1,
+            backbone_kwargs=None,
+            **kwargs
+    ):
+        backbone_kwargs = {} if backbone_kwargs is None else backbone_kwargs
+        update_dict_(backbone_kwargs, dict(model_name=kwargs.get('model_name')))
+        super().__init__(
+            backbone=TimmMaNet(in_channels, 0, **backbone_kwargs),
+            order=order,
+            nms_thresh=nms_thresh,
+            score_thresh=score_thresh,
+            samples=samples,
+            classes=classes,
+            refinement=refinement,
+            refinement_iterations=refinement_iterations,
+            refinement_margin=refinement_margin,
+            refinement_buckets=refinement_buckets,
+            **kwargs
+        )
+        self.save_hyperparameters()
+
+    __init__.__doc__ = _make_cpn_doc(
+        'Contour Proposal Network with MA-Net and a backbone from the timm package.',
+        'A Contour Proposal Network that uses a MA-Net and a backbone from the timm package.',
+        'cd.models.TimmMaNet'
     )
 
 
