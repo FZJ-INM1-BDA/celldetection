@@ -8,7 +8,6 @@ from torch import Tensor, squeeze, as_tensor
 from torchvision.utils import make_grid
 from typing import Union, List
 from ..util.util import asnumpy
-from ..data import channels_first2channels_last, channels_last2channels_first
 
 __all__ = []
 
@@ -48,6 +47,7 @@ def _im_args(images):
 
 
 def _unpack(image):
+    from ..data.misc import channels_first2channels_last, channels_last2channels_first
     if isinstance(image, Tensor):
         if image.ndim == 4:  # n, c, h, w
             if image.shape[0] == 1:
