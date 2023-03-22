@@ -43,3 +43,5 @@ API Reference
    celldetection.models
    celldetection.mpi
    celldetection.ops
+   celldetection.optim
+   celldetection.callbacks
