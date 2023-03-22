@@ -5,8 +5,7 @@ import torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 from functools import partial
-from torchvision.ops import misc
-from torchvision.ops.misc import Permute
+from torchvision.ops import misc, Permute
 from torchvision.ops.stochastic_depth import StochasticDepth
 from ..util.util import lookup_nn
 from .commons import LayerNorm1d, LayerNorm2d, LayerNorm3d, channels_last_permute, channels_first_permute
