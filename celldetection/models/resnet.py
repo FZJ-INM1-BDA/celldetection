@@ -1,15 +1,13 @@
-import torch
-from torch import nn, Tensor
+from torch import nn
 from torch.nn import functional as F
-from torchvision.models.resnet import ResNet as RN, Bottleneck, BasicBlock
-from ..util.util import Dict, lookup_nn
+from torchvision.models import resnet as tvr
+from ..util.util import Dict, lookup_nn, get_nd_conv
 from torch.hub import load_state_dict_from_url
 from .ppm import append_pyramid_pooling_
-
+from typing import Type, Union, Optional
 
 __all__ = ['get_resnet', 'ResNet50', 'ResNet34', 'ResNet18', 'ResNet152', 'ResNet101', 'WideResNet101_2',
            'WideResNet50_2', 'ResNeXt152_32x8d', 'ResNeXt101_32x8d', 'ResNeXt50_32x4d']
-
 
 default_model_urls = {
     'ResNet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',  # IMAGENET1K_V1
@@ -24,8 +22,128 @@ default_model_urls = {
 }
 
 
+def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1,
+            nd=2) -> nn.Conv2d:
+    """3x3 convolution with padding"""
+    return get_nd_conv(nd)(
+        in_planes,
+        out_planes,
+        kernel_size=3,
+        stride=stride,
+        padding=dilation,
+        groups=groups,
+        bias=False,
+        dilation=dilation,
+    )
+
+
+def conv1x1(in_planes: int, out_planes: int, stride: int = 1, nd=2) -> nn.Conv2d:
+    """1x1 convolution"""
+    return get_nd_conv(nd)(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+
+
+class BasicBlock(nn.Module):
+    expansion: int = tvr.BasicBlock.expansion
+    forward = tvr.BasicBlock.forward
+
+    def __init__(  # Port from torchvision (to support 3d and add more features)
+            self,
+            inplanes: int,
+            planes: int,
+            stride: int = 1,
+            downsample: Optional[nn.Module] = None,
+            groups: int = 1,
+            base_width: int = 64,
+            dilation: int = 1,
+            norm_layer='batchnorm2d',
+            nd=2
+    ) -> None:
+        super().__init__()
+        norm_layer = lookup_nn(norm_layer, call=False, nd=nd)
+        if groups != 1 or base_width != 64:
+            raise ValueError("BasicBlock only supports groups=1 and base_width=64")
+        if dilation > 1:
+            raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
+        self.conv1 = conv3x3(inplanes, planes, stride, nd=nd)
+        self.bn1 = norm_layer(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes, nd=nd)
+        self.bn2 = norm_layer(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+
+class Bottleneck(nn.Module):
+    expansion: int = tvr.Bottleneck.expansion
+    forward = tvr.Bottleneck.forward
+
+    def __init__(  # Port from torchvision (to support 3d and add more features)
+            self,
+            inplanes: int,
+            planes: int,
+            stride: int = 1,
+            downsample: Optional[nn.Module] = None,
+            groups: int = 1,
+            base_width: int = 64,
+            dilation: int = 1,
+            norm_layer='batchnorm2d',
+            nd=2
+    ) -> None:
+        super().__init__()
+        norm_layer = lookup_nn(norm_layer, call=False, nd=nd)
+        width = int(planes * (base_width / 64.0)) * groups
+        self.conv1 = conv1x1(inplanes, width, nd=nd)
+        self.bn1 = norm_layer(width)
+        self.conv2 = conv3x3(width, width, stride, groups, dilation, nd=nd)
+        self.bn2 = norm_layer(width)
+        self.conv3 = conv1x1(width, planes * self.expansion, nd=nd)
+        self.bn3 = norm_layer(planes * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+
+def _make_layer(  # Port from torchvision (to support 3d)
+        self,
+        block: Type[Union[BasicBlock, Bottleneck]],
+        planes: int,
+        blocks: int,
+        stride: int = 1,
+        dilate: bool = False,
+        nd=2,
+) -> nn.Sequential:
+    norm_layer = self._norm_layer
+    downsample = None
+    previous_dilation = self.dilation
+    if dilate:
+        self.dilation *= stride
+        stride = 1
+    if stride != 1 or self.inplanes != planes * block.expansion:
+        downsample = nn.Sequential(
+            conv1x1(self.inplanes, planes * block.expansion, stride, nd=nd),
+            norm_layer(planes * block.expansion),
+        )
+
+    layers = []
+    layers.append(
+        block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer,
+              nd=nd))
+    self.inplanes = planes * block.expansion
+    for _ in range(1, blocks):
+        layers.append(block(
+            self.inplanes,
+            planes,
+            groups=self.groups,
+            base_width=self.base_width,
+            dilation=self.dilation,
+            norm_layer=norm_layer,
+            nd=nd,
+        ))
+    return nn.Sequential(*layers)
+
+
 def make_res_layer(block, inplanes, planes, blocks, norm_layer=nn.BatchNorm2d, base_width=64, groups=1, stride=1,
-                   dilation=1, dilate=False, **kwargs) -> nn.Module:
+                   dilation=1, dilate=False, nd=2, **kwargs) -> nn.Module:
     """
 
     Args:
@@ -43,9 +161,11 @@ def make_res_layer(block, inplanes, planes, blocks, norm_layer=nn.BatchNorm2d, b
     Returns:
 
     """
+    norm_layer = lookup_nn(norm_layer, nd=nd, call=False)
     d = Dict(inplanes=inplanes, _norm_layer=norm_layer, base_width=base_width,
              groups=groups, dilation=dilation)  # almost a ResNet
-    return RN._make_layer(self=d, block=block, planes=planes, blocks=blocks, stride=stride, dilate=dilate)
+
+    return _make_layer(self=d, block=block, planes=planes, blocks=blocks, stride=stride, dilate=dilate, nd=nd)
 
 
 def _apply_mapping_rules(key, rules: dict):
@@ -87,15 +207,18 @@ def map_state_dict(in_channels, state_dict, fused_initial):
 class ResNet(nn.Sequential):
     def __init__(self, in_channels, *body: nn.Module, initial_strides=2, base_channel=64, initial_pooling=True,
                  final_layer=None, final_activation=None, fused_initial=True, pretrained=False,
-                 pyramid_pooling=False, pyramid_pooling_channels=64, pyramid_pooling_kwargs=None, **kwargs):
+                 pyramid_pooling=False, pyramid_pooling_channels=64, pyramid_pooling_kwargs=None, nd=2, **kwargs):
         assert len(body) > 0
         body = list(body)
+        Conv = get_nd_conv(nd)
+        Norm = lookup_nn(nn.BatchNorm2d, nd=nd, call=False)
+        MaxPool = lookup_nn(nn.MaxPool2d, nd=nd, call=False)
         initial = [
-            nn.Conv2d(in_channels, base_channel, 7, padding=3, bias=False, stride=initial_strides),
-            nn.BatchNorm2d(base_channel),
+            Conv(in_channels, base_channel, 7, padding=3, bias=False, stride=initial_strides),
+            Norm(base_channel),
             nn.ReLU(inplace=True)
         ]
-        pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1) if initial_pooling else nn.Identity()
+        pool = MaxPool(kernel_size=3, stride=2, padding=1) if initial_pooling else nn.Identity()
         if fused_initial:
             initial += [pool, body[0]]
         else:
@@ -122,24 +245,27 @@ class ResNet(nn.Sequential):
 
 
 class VanillaResNet(ResNet):
-    def __init__(self, in_channels, out_channels=0, layers=(2, 2, 2, 2), base_channel=64, fused_initial=True, **kwargs):
+    def __init__(self, in_channels, out_channels=0, layers=(2, 2, 2, 2), base_channel=64, fused_initial=True, nd=2,
+                 **kwargs):
         self.out_channels = oc = (base_channel, base_channel * 2, base_channel * 4, base_channel * 8)
+        self.out_strides = (4, 8, 16, 32)
         if out_channels and 'final_layer' not in kwargs.keys():
-            kwargs['final_layer'] = nn.Conv2d(self.out_channels[-1], out_channels, 1)
+            kwargs['final_layer'] = get_nd_conv(nd)(self.out_channels[-1], out_channels, 1)
         super(VanillaResNet, self).__init__(
             in_channels,
-            make_res_layer(BasicBlock, base_channel, oc[0], layers[0], stride=1, **kwargs),
-            make_res_layer(BasicBlock, oc[0], oc[1], layers[1], stride=2, **kwargs),
-            make_res_layer(BasicBlock, oc[1], oc[2], layers[2], stride=2, **kwargs),
-            make_res_layer(BasicBlock, oc[2], oc[3], layers[3], stride=2, **kwargs),
-            base_channel=base_channel, fused_initial=fused_initial, **kwargs
+            make_res_layer(BasicBlock, base_channel, oc[0], layers[0], stride=1, nd=nd, **kwargs),
+            make_res_layer(BasicBlock, oc[0], oc[1], layers[1], stride=2, nd=nd, **kwargs),
+            make_res_layer(BasicBlock, oc[1], oc[2], layers[2], stride=2, nd=nd, **kwargs),
+            make_res_layer(BasicBlock, oc[2], oc[3], layers[3], stride=2, nd=nd, **kwargs),
+            base_channel=base_channel, fused_initial=fused_initial, nd=nd, **kwargs
         )
         if not fused_initial:
             self.out_channels = (base_channel,) + self.out_channels
+            self.out_strides = (2,) + self.out_strides
 
 
 class ResNet18(VanillaResNet):
-    def __init__(self, in_channels, out_channels=0, pretrained=False, **kwargs):
+    def __init__(self, in_channels, out_channels=0, pretrained=False, nd=2, **kwargs):
         """ResNet 18.
 
         ResNet 18 encoder.
@@ -153,114 +279,117 @@ class ResNet18(VanillaResNet):
                 Alternatively, ``pretrained`` can be a URL of a ``state_dict`` that is hosted online.
             **kwargs: Additional keyword arguments.
         """
-        if pretrained is True:
+        if pretrained is True and nd == 2:
             pretrained = default_model_urls['ResNet18']
         super(ResNet18, self).__init__(in_channels, out_channels=out_channels, layers=(2, 2, 2, 2),
-                                       pretrained=pretrained, **kwargs)
+                                       pretrained=pretrained, nd=nd, **kwargs)
 
 
 class ResNet34(VanillaResNet):
-    def __init__(self, in_channels, out_channels=0, pretrained=False, **kwargs):
-        if pretrained is True:
+    def __init__(self, in_channels, out_channels=0, pretrained=False, nd=2, **kwargs):
+        if pretrained is True and nd == 2:
             pretrained = default_model_urls['ResNet34']
         super(ResNet34, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 6, 3),
-                                       pretrained=pretrained, **kwargs)
+                                       pretrained=pretrained, nd=nd, **kwargs)
 
     __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNet 34')
 
 
 class BottleResNet(ResNet):
-    def __init__(self, in_channels, out_channels=0, layers=(3, 4, 6, 3), base_channel=64, fused_initial=True, **kwargs):
+    def __init__(self, in_channels, out_channels=0, layers=(3, 4, 6, 3), base_channel=64, fused_initial=True, nd=2,
+                 **kwargs):
         ex = Bottleneck.expansion
         self.out_channels = oc = (base_channel * 4, base_channel * 8, base_channel * 16, base_channel * 32)
+        self.out_strides = (4, 8, 16, 32)
         if out_channels and 'final_layer' not in kwargs.keys():
             kwargs['final_layer'] = nn.Conv2d(self.out_channels[-1], out_channels, 1)
         super(BottleResNet, self).__init__(
             in_channels,
-            make_res_layer(Bottleneck, base_channel, oc[0] // ex, layers[0], stride=1, **kwargs),
-            make_res_layer(Bottleneck, base_channel * 4, oc[1] // ex, layers[1], stride=2, **kwargs),
-            make_res_layer(Bottleneck, base_channel * 8, oc[2] // ex, layers[2], stride=2, **kwargs),
-            make_res_layer(Bottleneck, base_channel * 16, oc[3] // ex, layers[3], stride=2, **kwargs),
-            base_channel=base_channel, fused_initial=fused_initial, **kwargs
+            make_res_layer(Bottleneck, base_channel, oc[0] // ex, layers[0], stride=1, nd=nd, **kwargs),
+            make_res_layer(Bottleneck, base_channel * 4, oc[1] // ex, layers[1], stride=2, nd=nd, **kwargs),
+            make_res_layer(Bottleneck, base_channel * 8, oc[2] // ex, layers[2], stride=2, nd=nd, **kwargs),
+            make_res_layer(Bottleneck, base_channel * 16, oc[3] // ex, layers[3], stride=2, nd=nd, **kwargs),
+            base_channel=base_channel, fused_initial=fused_initial, nd=nd, **kwargs
         )
         if not fused_initial:
             self.out_channels = (base_channel,) + self.out_channels
+            self.out_strides = (2,) + self.out_strides
 
 
 class ResNet50(BottleResNet):
-    def __init__(self, in_channels, out_channels=0, pretrained=False, **kwargs):
-        if pretrained is True:
+    def __init__(self, in_channels, out_channels=0, pretrained=False, nd=2, **kwargs):
+        if pretrained is True and nd == 2:
             pretrained = default_model_urls['ResNet50']
         super(ResNet50, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 6, 3),
-                                       pretrained=pretrained, **kwargs)
+                                       pretrained=pretrained, nd=nd, **kwargs)
 
     __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNet 50')
 
 
 class ResNet101(BottleResNet):
-    def __init__(self, in_channels, out_channels=0, pretrained=False, **kwargs):
-        if pretrained is True:
+    def __init__(self, in_channels, out_channels=0, pretrained=False, nd=2, **kwargs):
+        if pretrained is True and nd == 2:
             pretrained = default_model_urls['ResNet101']
         super(ResNet101, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 23, 3),
-                                        pretrained=pretrained, **kwargs)
+                                        pretrained=pretrained, nd=nd, **kwargs)
 
     __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNet 101')
 
 
 class ResNet152(BottleResNet):
-    def __init__(self, in_channels, out_channels=0, pretrained=False, **kwargs):
-        if pretrained is True:
+    def __init__(self, in_channels, out_channels=0, pretrained=False, nd=2, **kwargs):
+        if pretrained is True and nd == 2:
             pretrained = default_model_urls['ResNet152']
         super(ResNet152, self).__init__(in_channels, out_channels=out_channels, layers=(3, 8, 36, 3),
-                                        pretrained=pretrained, **kwargs)
+                                        pretrained=pretrained, nd=nd, **kwargs)
 
     __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNet 152')
 
 
 class ResNeXt50_32x4d(BottleResNet):
-    def __init__(self, in_channels, out_channels=0, pretrained=False, **kwargs):
-        if pretrained is True:
+    def __init__(self, in_channels, out_channels=0, pretrained=False, nd=2, **kwargs):
+        if pretrained is True and nd == 2:
             pretrained = default_model_urls['ResNeXt50_32x4d']
         super(ResNeXt50_32x4d, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 6, 3), groups=32,
-                                              base_width=4, pretrained=pretrained, **kwargs)
+                                              base_width=4, pretrained=pretrained, nd=nd, **kwargs)
 
     __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNeXt 50')
 
 
 class ResNeXt101_32x8d(BottleResNet):
-    def __init__(self, in_channels, out_channels=0, pretrained=False, **kwargs):
-        if pretrained is True:
+    def __init__(self, in_channels, out_channels=0, pretrained=False, nd=2, **kwargs):
+        if pretrained is True and nd == 2:
             pretrained = default_model_urls['ResNeXt101_32x8d']
         super(ResNeXt101_32x8d, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 23, 3), groups=32,
-                                               base_width=8, pretrained=pretrained, **kwargs)
+                                               base_width=8, pretrained=pretrained, nd=nd, **kwargs)
 
     __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNeXt 101')
 
 
 class ResNeXt152_32x8d(BottleResNet):
-    def __init__(self, in_channels, out_channels=0, **kwargs):
+    def __init__(self, in_channels, out_channels=0, nd=2, **kwargs):
         super(ResNeXt152_32x8d, self).__init__(in_channels, out_channels=out_channels, layers=(3, 8, 36, 3), groups=32,
-                                               base_width=8, **kwargs)
+                                               base_width=8, nd=nd, **kwargs)
 
     __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'ResNeXt 152')
 
 
 class WideResNet50_2(BottleResNet):
-    def __init__(self, in_channels, out_channels=0, pretrained=False, **kwargs):
-        if pretrained is True:
+    def __init__(self, in_channels, out_channels=0, pretrained=False, nd=2, **kwargs):
+        if pretrained is True and nd == 2:
             pretrained = default_model_urls['WideResNet50_2']
         super(WideResNet50_2, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 6, 3),
-                                             base_width=64 * 2, pretrained=pretrained, **kwargs)
+                                             base_width=64 * 2, pretrained=pretrained, nd=nd, **kwargs)
 
     __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'Wide ResNet 50')
 
 
 class WideResNet101_2(BottleResNet):
-    def __init__(self, in_channels, out_channels=0, pretrained=False, **kwargs):
-        if pretrained is True:
+    def __init__(self, in_channels, out_channels=0, pretrained=False, nd=2, **kwargs):
+        if pretrained is True and nd == 2:
             pretrained = default_model_urls['WideResNet101_2']
         super(WideResNet101_2, self).__init__(in_channels, out_channels=out_channels, layers=(3, 4, 23, 3),
-                                              base_width=64 * 2, pretrained=pretrained, **kwargs)
+                                              base_width=64 * 2, pretrained=pretrained, nd=nd, **kwargs)
 
     __init__.__doc__ = ResNet18.__init__.__doc__.replace('ResNet 18', 'Wide ResNet 101')
 
