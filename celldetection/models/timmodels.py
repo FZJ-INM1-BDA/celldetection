@@ -14,7 +14,7 @@ __all__ = ['TimmEncoder']
 def get_channels_strides(model, example_input=None, verbose=True) -> Tuple[List[int], List[int]]:
     """Get channels and strides.
 
-    A helper method to probe the channels and strides of the output of this class.
+    A helper function to probe the channels and strides of the output of ``model``.
 
     Examples:
         >>> m = cd.models.TimmEncoder(
@@ -74,7 +74,7 @@ def get_channels_strides(model, example_input=None, verbose=True) -> Tuple[List[
 def get_names(model, *pattern) -> List[str]:
     """Get names.
 
-    A helper method to discover module names for intermediate feature extraction.
+    A helper function to discover module names for intermediate feature extraction.
     A list of module names can be passed to the constructor of this class (``return_layers``)
     to convert the timm model to a custom feature extractor.
 

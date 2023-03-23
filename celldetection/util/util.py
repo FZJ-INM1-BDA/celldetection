@@ -333,7 +333,7 @@ def asnumpy(v):
         if str(v.device) != 'cpu':
             v = v.cpu()
         return v.data.numpy()
-    elif isinstance(v, (np.ndarray, int, float, bool, np.float, np.int, np.bool, str)):
+    elif isinstance(v, (np.ndarray, int, float, bool, str)):
         return v
     elif isinstance(v, (tuple, list)):
         return [asnumpy(val) for val in v]

@@ -19,7 +19,7 @@ class WarmUp(MultiplicativeLR):
             last_epoch: int = -1,
             verbose: bool = False
     ):
-        """
+        """WarmUp.
 
         Applies a scaling factor to learning rate for steps ``1`` to ``steps``.
         Applies no changes otherwise.
@@ -29,17 +29,17 @@ class WarmUp(MultiplicativeLR):
             - WarmUp sets learning rates based on captured initial learning rates (``base_lrs``).
             - Changes from other schedulers applied before WarmUp will be ovewritten.
             - Chaining ``WarmUp`` is equivalent to SequentialLR if other schedule dynamically manipulates
-                optimizer.param_groups without relying on ``base_lrs``.
+              optimizer.param_groups without relying on ``base_lrs``.
 
         Examples:
             >>> # First WarmUp, then other schedule
             >>> from torch.optim.lr_scheduler import SequentialLR, CosineAnnealingLR
             >>> from celldetection.optim import WarmUp
-            >>> warmup_staps = 512
+            >>> warmup_steps = 512
             >>> scheduler = SequentialLR(optimizer, [
-            ...     WarmUp(optimizer, warmup_staps),  # warmup for 512 steps
+            ...     WarmUp(optimizer, warmup_steps),  # warmup for 512 steps
             ...     CosineAnnealingLR(optimizer, T_max=512, eta_min=0.00001),  # after 512 steps switch to cosine ann.
-            ... ], milestones=[warmup_staps])
+            ... ], milestones=[warmup_steps])
 
             >>> # Chaining WarmUp and other schedule
             >>> from torch.optim.lr_scheduler import ChainedScheduler, StepLR

@@ -1691,7 +1691,8 @@ class CpnMiTB5MaNet(CPN):
             **kwargs
     ):
         super().__init__(
-            backbone=MaNet(in_channels=in_channels, encoder_name="mit_b5", **(backbone_kwargs or {})),
+            backbone=SmpMaNet(in_channels=in_channels, out_channels=0, model_name='mit_b5',
+                              **(backbone_kwargs or {})),
             order=order,
             nms_thresh=nms_thresh,
             score_thresh=score_thresh,

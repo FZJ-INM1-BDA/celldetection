@@ -19,7 +19,7 @@ __all__ = [
 
 class SqueezeExcitation(SE):
     def forward(self, inputs):
-        scale = super().forward(inputs)
+        scale = super(SE, self).forward(inputs)
         return scale
 
 
@@ -141,8 +141,8 @@ class MaNet(UNet):
         if pab_channels:
             intermediate_blocks = PAB(oc[-1], oc[-1], mid_channels=pab_channels, nd=nd,
                                       replace=True, **kwargs.get('pwa_kwargs', {}))
+        kwargs['block_interpolate'] = block_interpolate = kwargs.get('block_interpolate', True)
         if block is None:
-            block_interpolate = kwargs.get('block_interpolate', True)
             block = partial(MultiscaleFusionAttention, interpolation=block_interpolate if block_interpolate else None)
             kwargs['block_cat'] = kwargs.get('block_cat', True)
         super().__init__(backbone=backbone, out_channels=out_channels, block=block,

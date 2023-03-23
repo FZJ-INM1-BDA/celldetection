@@ -106,6 +106,8 @@ class GeneralizedUNet(FeaturePyramidNetwork):
                     out_channels_list = (out_channels_list[0],) + tuple(out_channels_list)
 
         # Build decoder
+        self.cat_order = kwargs.get('cat_order', 0)
+        assert self.cat_order in (0, 1)
         self.block_channel_reduction = kwargs.get('block_channel_reduction', False)  # whether block reduces in_channels
         self.block_interpolate = kwargs.get('block_interpolate', False)  # whether block handles interpolation
         self.block_cat = kwargs.get('block_cat', False)  # whether block handles cat
@@ -211,7 +213,11 @@ class GeneralizedUNet(FeaturePyramidNetwork):
                     mode=self.interpolate, **kw)
             inner_top_down = self.get_result_from_inner_blocks(inner_top_down, i)
             if self.apply_cat[i]:
-                layer_block_inputs = torch.cat((lateral, inner_top_down), 1)  # note order
+                if self.cat_order == 0:
+                    cat = lateral, inner_top_down
+                else:
+                    cat = inner_top_down, lateral
+                layer_block_inputs = torch.cat(cat, 1)
             elif lateral is None:
                 layer_block_inputs = inner_top_down
             else:
