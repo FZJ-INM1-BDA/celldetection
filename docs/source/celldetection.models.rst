@@ -12,6 +12,13 @@ U-Net
    :members:
    :undoc-members:
 
+Multi-Scale Attention Network
+-----------------------------
+
+.. automodule:: celldetection.models.manet
+   :members:
+   :undoc-members:
+
 Contour Proposal Network
 ------------------------
 
@@ -33,8 +40,29 @@ Feature Pyramid Network
    :members:
    :undoc-members:
 
+Timm Encoder
+------------
+
+.. automodule:: celldetection.models.timmodels
+   :members:
+   :undoc-members:
+
+Smp Encoder
+-----------
+
+.. automodule:: celldetection.models.smp
+   :members:
+   :undoc-members:
+
+ConvNeXt
+--------
+
+.. automodule:: celldetection.models.convnext
+   :members:
+   :undoc-members:
+
 MobileNet
---------------
+---------
 
 .. automodule:: celldetection.models.mobilenetv3
    :members:
