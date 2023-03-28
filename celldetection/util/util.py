@@ -9,7 +9,7 @@ from torch.hub import load_state_dict_from_url
 import hashlib
 import json
 from tqdm import tqdm
-from os.path import join
+from os.path import join, isfile
 from os import makedirs
 import pynvml as nv
 from cv2 import getGaussianKernel
@@ -358,7 +358,7 @@ def _load_cd_format(m, **kwargs):
 
 
 def load_model(filename, map_location=None, **kwargs):
-    assert os.path.isfile(filename)
+    assert isfile(filename)
     m = torch.load(filename, map_location=map_location, **kwargs.pop('load_kwargs', {}))
     if isinstance(m, dict) and 'cd.models' in m.keys():
         return _load_cd_format(m, **kwargs)
