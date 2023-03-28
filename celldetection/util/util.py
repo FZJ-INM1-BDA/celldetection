@@ -21,7 +21,6 @@ from itertools import product
 from inspect import currentframe
 from shutil import copy2
 
-
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'asnumpy', 'fetch_model',
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
            'random_code_name_dir', 'get_device', 'num_params', 'count_submodules', 'train_epoch', 'Bytes', 'Percent',
@@ -30,7 +29,8 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'to_json', 'from_json', 'exponential_moving_average_', 'weight_norm_', 'inject_extra_repr_',
            'ensure_num_tuple', 'get_nd_conv', 'get_nd_linear', 'get_nd_dropout', 'get_nd_max_pool', 'get_nd_batchnorm',
            'get_warmup_factor', 'print_to_file', 'NormProxy', 'num_bytes', 'from_h5', 'update_dict_',
-           'get_tiling_slices', 'get_nn', 'copy_script']
+           'get_tiling_slices', 'get_nn', 'copy_script', 'hash_file', 'append_hash_to_filename', 'save_fetchable_model',
+           'load_model']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
@@ -346,6 +346,25 @@ def asnumpy(v):
         raise ValueError(f'Type not supported: {type(v)}')
 
 
+def _load_cd_format(m, **kwargs):
+    assert isinstance(m, dict) and 'cd.models' in m.keys()
+    state_dict = m['state_dict']
+    from .. import models
+    conf = m['cd.models']
+    kw = {**conf.get('kwargs', conf.get('kw', {})), **kwargs}
+    m = getattr(models, conf['model'])(*conf.get('args', conf.get('a', ())), **kw)
+    m.load_state_dict(state_dict)
+    return m
+
+
+def load_model(filename, map_location=None, **kwargs):
+    assert os.path.isfile(filename)
+    m = torch.load(filename, map_location=map_location, **kwargs.pop('load_kwargs', {}))
+    if isinstance(m, dict) and 'cd.models' in m.keys():
+        return _load_cd_format(m, **kwargs)
+    return m
+
+
 def fetch_model(name, map_location=None, **kwargs):
     """Fetch model from URL.
 
@@ -358,15 +377,51 @@ def fetch_model(name, map_location=None, **kwargs):
 
     """
     url = name if name.startswith('http') else f'https://celldetection.org/torch/models/{name}.pt'
-    m = load_state_dict_from_url(url, map_location=map_location, **kwargs.get('load_state_dict_kwargs', {}))
+    m = load_state_dict_from_url(url, map_location=map_location, **kwargs.pop('load_state_dict_kwargs', {}))
     if isinstance(m, dict) and 'cd.models' in m.keys():
-        state_dict = m['state_dict']
-        from .. import models
-        conf = m['cd.models']
-        kw = {**conf.get('kwargs', conf.get('kw', {})), **kwargs}
-        m = getattr(models, conf['model'])(*conf.get('args', conf.get('a', ())), **kw)
-        m.load_state_dict(state_dict)
+        m = _load_cd_format(m, **kwargs)
     return m
+
+
+def hash_file(filename):
+    import hashlib
+
+    with open(filename, 'rb') as f:
+        sha256 = hashlib.sha256(f.read()).hexdigest()
+    return sha256
+
+
+def append_hash_to_filename(filename, num=None, ext=True):
+    from os import rename
+    prefix = filename
+    postfix = ''
+    if ext:
+        sp = prefix.split('.')
+        prefix = '.'.join(sp[:-1])
+        postfix = f'.{sp[-1]}'
+    sha256 = hash_file(filename)
+    if num is not None:
+        sha256 = sha256[:num]
+    dst = prefix + f'-{sha256}' + postfix
+    rename(filename, dst)
+
+
+def save_fetchable_model(model: 'nn.Module', filename, append_hash=16):
+    model.eval()
+    model = model.to('cpu')
+    kwargs = model.hparams
+    name = model.__class__.__name__
+    torch.save({
+        'cd.models': dict(
+            model=name,
+            kwargs=kwargs,
+        ),
+        'state_dict': model.state_dict(),
+    }, filename)
+    if append_hash:
+        if append_hash is True:
+            append_hash = None
+        append_hash_to_filename(filename, num=append_hash)
 
 
 def random_code_name(chars=4) -> str:
