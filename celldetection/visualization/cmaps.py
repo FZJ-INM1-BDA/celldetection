@@ -36,7 +36,7 @@ def label_cmap(labels: ndarray, colors: Union[str, ndarray] = 'rand', zero_val: 
     assert issubclass(labels.dtype.type, np.integer), 'Pass labels as an integer array.'
     if isinstance(colors, str):
         if colors == 'rand':
-            colors = random_colors_hsv(min(9999, labels.max()))
+            colors = random_colors_hsv(max(1, min(9999, labels.max())))
         else:
             colors = cm.get_cmap(colors).colors
     if isinstance(colors, (tuple, list)):
