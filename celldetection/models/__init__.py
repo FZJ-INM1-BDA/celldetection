@@ -17,5 +17,6 @@ from .convnext import *
 from .manet import *
 from .smp import *
 from .timmodels import *
+from .lightning import LitCpn
 
 from ..util.util import NormProxy
