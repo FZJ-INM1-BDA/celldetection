@@ -93,6 +93,23 @@ def _resolve_features(features, keys):
     return features[keys]
 
 
+def _equal_size(x, reference, mode='bilinear', align_corners=False):
+    if reference.shape[2:] != x.shape[2:]:  # 337 ns
+        # bilinear: 3.79 ms for (128, 128) to (512, 512)
+        # bicubic: 11.5 ms for (128, 128) to (512, 512)
+        x = F.interpolate(x, reference.shape[2:],
+                          mode=mode, align_corners=align_corners)
+    return x
+
+
+def _apply_score_bounds(scores, scores_lower_bound, scores_upper_bound):
+    if scores_upper_bound is not None:
+        scores = torch.minimum(scores, _equal_size(scores_upper_bound, scores))
+    if scores_lower_bound is not None:
+        scores = torch.maximum(scores, _equal_size(scores_lower_bound, scores))
+    return scores
+
+
 class CPNCore(nn.Module):
     def __init__(
             self,
@@ -240,14 +257,8 @@ class CPNCore(nn.Module):
             if self.refinement_fuse is not None:
                 ref_features = self.refinement_fuse(ref_features)
             if self.refinement_full_res:
-                ref_features = F.interpolate(ref_features, inputs.shape[-2:], mode=self.refinement_interpolation,
-                                             align_corners=False)
-            refinement = self.refinement_head(ref_features)
-            if refinement.shape[-2:] != inputs.shape[-2:]:  # 337 ns
-                # bilinear: 3.79 ms for (128, 128) to (512, 512)
-                # bicubic: 11.5 ms for (128, 128) to (512, 512)
-                refinement = F.interpolate(refinement, inputs.shape[-2:],
-                                           mode=self.refinement_interpolation, align_corners=False)
+                ref_features = _equal_size(ref_features, inputs, mode=self.refinement_interpolation)
+            refinement = _equal_size(self.refinement_head(ref_features), inputs, mode=self.refinement_interpolation)
         else:
             refinement = None
 
@@ -540,24 +551,17 @@ class CPN(nn.Module, HyperparametersMixin):
         # Core
         scores, locations, refinement, fourier, uncertainty = self.core(inputs)
 
-        # Apply optional score bounds
-        scores_upper_bound = kwargs.get('scores_upper_bound')
-        scores_lower_bound = kwargs.get('scores_lower_bound')
-        if scores_upper_bound is not None:
-            scores = torch.minimum(scores, scores_upper_bound)
-        if scores_lower_bound is not None:
-            scores = torch.maximum(scores, scores_lower_bound)
-
         # Scores
         raw_scores = scores
+        score_bounds = kwargs.get('scores_lower_bound'), kwargs.get('scores_upper_bound')
         if self.score_channels == 1:
-            scores = torch.sigmoid(scores)
+            scores = _apply_score_bounds(torch.sigmoid(scores), *score_bounds)
             classes = torch.squeeze((scores > self.score_thresh).long(), 1)
         elif self.score_channels == 2:
-            scores = F.softmax(scores, dim=1)[:, 1:2]
+            scores = _apply_score_bounds(F.softmax(scores, dim=1)[:, 1:2], *score_bounds)
             classes = torch.squeeze((scores > self.score_thresh).long(), 1)
         elif self.score_channels > 2:
-            scores = F.softmax(scores, dim=1)
+            scores = _apply_score_bounds(F.softmax(scores, dim=1), *score_bounds)
             classes = torch.argmax(scores, dim=1).long()
         else:
             raise ValueError
