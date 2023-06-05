@@ -9,7 +9,7 @@
 
 ###### NeurIPS 22 Cell Segmentation Competition
 
-![neurips22](assets/neurips-cellseg-demo.png "NeurIPS 22 Cell Segmentation Competition - Find more information here: https://neurips.cc/Conferences/2022/CompetitionTrack")
+![neurips22](https://raw.githubusercontent.com/FZJ-INM1-BDA/celldetection/main/assets/neurips-cellseg-demo.png "NeurIPS 22 Cell Segmentation Competition - Find more information here: https://neurips.cc/Conferences/2022/CompetitionTrack")
 *https://openreview.net/forum?id=YtgRjBw-7GJ*
 
 ###### Nuclei of U2OS cells in a chemical screen
