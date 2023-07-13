@@ -8,7 +8,7 @@ from skimage import measure
 
 __all__ = ['to_tensor', 'transpose_spatial', 'universal_dict_collate_fn', 'normalize_percentile', 'random_crop',
            'channels_last2channels_first', 'channels_first2channels_last', 'ensure_tensor', 'rgb_to_scalar',
-           'padding_stack', 'labels2crops', 'rle2mask', 'resample_contours']
+           'padding_stack', 'labels2crops', 'labels2properties', 'rle2mask', 'resample_contours']
 
 
 def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dims=2, has_batch=False):
@@ -149,7 +149,9 @@ def universal_dict_collate_fn(batch, check_padding=True) -> OrderedDict:
 
 
 def normalize_percentile(image, percentile=99.9, to_uint8=True):
-    low, high = np.percentile(image, (100 - percentile, percentile))
+    if not isinstance(percentile, (list, tuple)):
+        percentile = (100 - percentile, percentile)
+    low, high = np.percentile(image, percentile)
     img = (np.clip(image, low, high) - low) / (high - low)
     return img_as_ubyte(img) if to_uint8 else img
 
@@ -249,6 +251,43 @@ def rgb_to_scalar(inputs: np.ndarray, dtype='int32'):
     return rgb
 
 
+def _labels2properties(p, results, label, properties):
+    if p.label > 0:
+        results.append([getattr(p, k) for k in properties])
+        label.append(p.label)
+
+
+def labels2properties(labels: 'np.ndarray', *properties, iter_channels=True, **kwargs):
+    """Labels to properties.
+
+    References:
+        [1] https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops
+
+    Args:
+        labels: Label image.
+        *properties: Property names. See [1] for details.
+        iter_channels: Whether to iterate channel axis of label image. If `False` label image is processed as is.
+        **kwargs: Keyword arguments for `skimage.measure.regionprops`.
+
+    Returns:
+        List of property lists.
+    """
+    if len(properties) == 1 and isinstance(properties[0], (list, tuple)):
+        properties, = properties
+    if labels.ndim == 2 and iter_channels:
+        labels = labels[..., None]
+    label = []
+    results = []
+    if iter_channels:
+        for z in range(labels.shape[2]):
+            for p in measure.regionprops(labels[..., z], **kwargs):
+                _labels2properties(p, results, label, properties)
+    else:
+        for p in measure.regionprops(labels, **kwargs):
+            _labels2properties(p, results, label, properties)
+    return [a for _, a in sorted(zip(label, results))]
+
+
 def labels2crops(labels: np.ndarray, image: np.ndarray):
     """Labels to crops.
 
@@ -262,17 +301,11 @@ def labels2crops(labels: np.ndarray, image: np.ndarray):
     Returns:
         (crop_list, mask_list)
     """
-    if labels.ndim == 2:
-        labels = labels[..., None]
     crops = []
     masks = []
-    for z in range(labels.shape[2]):
-        for p in measure.regionprops(labels[:, :, z]):
-            if p.label <= 0:
-                continue
-            y0, x0, y1, x1 = p.bbox  # half-open interval [min_row; max_row) and [min_col; max_col)
-            crops.append(image[y0:y1, x0:x1])
-            masks.append(p.image)
+    for (y0, x0, y1, x1), mask in labels2properties(labels, 'bbox', 'image'):
+        crops.append(image[y0:y1, x0:x1])
+        masks.append(mask)
     return crops, masks
 
 
