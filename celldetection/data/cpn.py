@@ -3,6 +3,7 @@ import cv2
 from skimage.measure import regionprops
 from collections import OrderedDict
 from .segmentation import filter_instances_
+from .misc import labels2properties
 
 
 def efd(contour, order=10, epsilon=1e-6):
@@ -219,10 +220,12 @@ def contours2boxes(contours):
     return boxes
 
 
-def render_contour(contour, val=1, dtype='int32'):
+def render_contour(contour, val=1, dtype='int32', round=False):
     xmin, ymin = np.floor(np.min(contour, axis=0)).astype('int')
     xmax, ymax = np.ceil(np.max(contour, axis=0)).astype('int')
     a = np.zeros((ymax - ymin + 1, xmax - xmin + 1), dtype=dtype)
+    if round:
+        contour = contour.round()
     a = cv2.drawContours(a, [np.array(contour, dtype=np.int32).reshape((-1, 1, 2))], 0, val, -1,
                          offset=(-xmin, -ymin))
     return a, (xmin, xmax), (ymin, ymax)
@@ -287,6 +290,28 @@ def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, ga
     return labels
 
 
+def contours2properties(contours, *properties, round=True, **kwargs):
+    """Contours to properties.
+
+    References:
+        [1] https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops
+
+    Args:
+        contours: Contours.
+        *properties: Property names. See [1] for details.
+        round: Whether to round contours. Default is `True`.
+        **kwargs: Keyword arguments for `skimage.measure.regionprops`.
+
+    Returns:
+        List of property lists.
+    """
+    results = []
+    for idx, con in enumerate(contours):
+        m, _, _ = render_contour(con, dtype='int32', round=round)
+        results += labels2properties(m, *properties, **kwargs)
+    return results
+
+
 def mask_labels_by_distance_(labels, distances, max_bg_dist, min_fg_dist):
     # Set instance labels to 0 if their distance is <= max_bg_dist
     labels[np.logical_and(np.any(labels > 0, 2), distances <= max_bg_dist)] = 0
@@ -295,7 +320,32 @@ def mask_labels_by_distance_(labels, distances, max_bg_dist, min_fg_dist):
     labels[np.logical_and(distances > max_bg_dist, distances < min_fg_dist)] = -1
 
 
-def labels2distances(labels, distance_type=cv2.DIST_L2, overlap_zero=True):
+def _labels2distances_fg(labels, fg_mask_wo_overlap, distance_type):
+    # Distance transform
+    fg_mask_wo_overlap.dtype = np.uint8
+    dist = cv2.distanceTransform(fg_mask_wo_overlap, distance_type, 3)
+    if labels.size > 0:
+        for p in regionprops(labels):
+            c = p.coords
+            indices = (c[:, 0], c[:, 1])
+            dist[indices] /= np.maximum(dist[indices].max(), .000001)
+    return dist
+
+
+def _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type):
+    dist = np.zeros_like(fg_mask_wo_overlap, dtype='float32')
+    if labels.size > 0:
+        for p in regionprops(labels):
+            y0, x0, _, y1, x1, _ = p.bbox
+            box_slices = (slice(y0, y1), slice(x0, x1))
+            mask = np.any(p.image, 2) & fg_mask_wo_overlap[box_slices]
+            d_ = cv2.distanceTransform(np.pad(mask.astype('uint8'), 1), distance_type, 3)[1:-1, 1:-1]
+            d_ /= np.maximum(d_.max(), .000001)
+            dist[box_slices][mask] = d_[mask]
+    return dist
+
+
+def labels2distances(labels, distance_type=cv2.DIST_L2, overlap_zero=True, per_instance=True):
     """Label stacks to distances.
 
     Measures distances from pixel to closest border, relative to largest distance.
@@ -308,10 +358,11 @@ def labels2distances(labels, distance_type=cv2.DIST_L2, overlap_zero=True):
         labels: Label stack. (height, width, channels)
         distance_type: opencv distance type.
         overlap_zero: Whether to set overlapping regions to zero.
+        per_instance: Performs the distance transform per instance if ``True``.
 
     Returns:
         Distance map of shape (height, width). All overlapping pixels are 0. Instance centers are 1.
-        Also labels are returned. They are altered if `overlap_zero is True`.
+        Also, labels are returned. They are altered if `overlap_zero is True`.
     """
     labels = np.copy(labels)
     mask = labels > 0
@@ -320,18 +371,16 @@ def labels2distances(labels, distance_type=cv2.DIST_L2, overlap_zero=True):
     if overlap_zero:
         overlap_mask = np.sum(mask, 2) > 1
         labels[overlap_mask] = -1
+        fg_mask_wo_overlap = np.sum(mask, 2) == 1
+    else:
+        fg_mask_wo_overlap = np.any(mask, 2)
 
     # Fg mask
-    fg_mask_wo_overlap = np.sum(mask, 2) == 1
-    fg_mask_wo_overlap.dtype = np.uint8
+    if per_instance:
+        dist = _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type)
+    else:
+        dist = _labels2distances_fg(labels, fg_mask_wo_overlap, distance_type)
 
-    # Distance transform
-    dist = cv2.distanceTransform(fg_mask_wo_overlap, distance_type, 3)
-    if labels.size > 0:
-        for p in regionprops(labels):
-            c = p.coords
-            indices = (c[:, 0], c[:, 1])
-            dist[indices] /= np.maximum(dist[indices].max(), .000001)
     return dist.clip(0., 1.), labels  # 332 µs ± 24.5 µs for (576, 576)
 
 
