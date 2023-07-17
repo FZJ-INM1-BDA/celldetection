@@ -307,8 +307,8 @@ def contours2properties(contours, *properties, round=True, **kwargs):
     """
     results = []
     for idx, con in enumerate(contours):
-        m, _, _ = render_contour(con, dtype='int32', round=round)
-        results += labels2properties(m, *properties, **kwargs)
+        m, (xmin, xmax), (ymin, ymax) = render_contour(con, dtype='int32', round=round)
+        results += labels2properties(m, *properties, offset=kwargs.pop('offset', (ymin, xmin)), **kwargs)
     return results
 
 
