@@ -5,10 +5,12 @@ from skimage import img_as_ubyte
 from ..util.util import get_device
 import cv2
 from skimage import measure
+import pandas as pd
 
 __all__ = ['to_tensor', 'transpose_spatial', 'universal_dict_collate_fn', 'normalize_percentile', 'random_crop',
            'channels_last2channels_first', 'channels_first2channels_last', 'ensure_tensor', 'rgb_to_scalar',
-           'padding_stack', 'labels2crops', 'labels2properties', 'rle2mask', 'resample_contours']
+           'padding_stack', 'labels2crops', 'labels2properties', 'rle2mask', 'resample_contours',
+           'labels2property_table']
 
 
 def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dims=2, has_batch=False):
@@ -286,6 +288,36 @@ def labels2properties(labels: 'np.ndarray', *properties, iter_channels=True, **k
         for p in measure.regionprops(labels, **kwargs):
             _labels2properties(p, results, label, properties)
     return [a for _, a in sorted(zip(label, results))]
+
+
+def labels2property_table(labels: 'np.ndarray', *properties, iter_channels=True, **kwargs) -> 'pd.DataFrame':
+    """Labels to property table.
+
+    References:
+        [1] https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops
+
+    Args:
+        labels: Label image.
+        *properties: Property names. See [1] for details.
+        iter_channels: Whether to iterate channel axis of label image. If `False` label image is processed as is.
+        **kwargs: Keyword arguments for `skimage.measure.regionprops_table`.
+
+    Returns:
+        Table (pd.DataFrame) of properties.
+    """
+    if len(properties) == 1 and isinstance(properties[0], (list, tuple)):
+        properties, = properties
+    if labels.ndim == 2 and iter_channels:
+        labels = labels[..., None]
+    df_kwargs = kwargs.pop('df_kwargs', {})
+    if iter_channels:
+        tab = None
+        for z in range(labels.shape[2]):
+            tab_ = pd.DataFrame(measure.regionprops_table(labels[..., z], properties=properties, **kwargs), **df_kwargs)
+            tab = pd.concat((tab, tab_))
+    else:
+        tab = pd.DataFrame(measure.regionprops_table(labels, properties=properties, **kwargs), **df_kwargs)
+    return tab
 
 
 def labels2crops(labels: np.ndarray, image: np.ndarray):
