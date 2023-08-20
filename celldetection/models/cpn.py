@@ -23,6 +23,17 @@ from .manet import MaNet, SmpMaNet, TimmMaNet
 __all__ = []
 
 
+def dummy_loss(*a, sub=1):
+    return 0. * sum([i[:sub].mean() for i in a if isinstance(i, Tensor)])
+
+
+def values2bins(values, limits, bins):
+    mi, ma = limits
+    v = (values - mi) / (ma - mi)
+    ma -= mi
+    return ((v // (ma / bins)) % bins).int()
+
+
 def register(obj):
     __all__.append(obj.__name__)
     return obj
@@ -50,6 +61,7 @@ def resolve_keep_indices(inputs: dict, keep: list) -> dict:
 
 
 def local_refinement(det_indices, refinement, num_loops, num_buckets, original_size, sampling, b):
+    all_det_indices = []
     for _ in torch.arange(0, num_loops):
         det_indices = torch.round(det_indices.detach())  # Tensor[num_contours, samples, 2]
         det_indices[..., 0].clamp_(0, original_size[1] - 1)
@@ -69,7 +81,8 @@ def local_refinement(det_indices, refinement, num_loops, num_buckets, original_s
                 else:
                     responses = responses + cur_ref
         det_indices = det_indices + responses
-    return det_indices
+        all_det_indices.append(det_indices)
+    return det_indices, all_det_indices
 
 
 def _resolve_channels(encoder_channels, backbone_channels, keys: Union[list, tuple, str], encoder_prefix: str):
@@ -364,7 +377,7 @@ class CPN(nn.Module, HyperparametersMixin):
         if not hasattr(backbone, 'out_channels'):
             raise ValueError('Backbone should have an attribute out_channels that states the channels of its output.')
 
-        self.core = CPNCore(
+        self.core = kwargs.get('core_cls', CPNCore)(
             backbone=backbone,
             backbone_channels=backbone.out_channels,
             order=order,
@@ -427,11 +440,13 @@ class CPN(nn.Module, HyperparametersMixin):
             locations,
             contours,
             refined_contours,
+            all_refined_contours,
             boxes,
             raw_scores,
             targets: dict,
             labels,
             fg_masks,
+            sampling,
             b
     ):
         assert targets is not None
@@ -520,9 +535,9 @@ class CPN(nn.Module, HyperparametersMixin):
                         cc_tar = c_tar
                     else:
                         cc_tar = hires_contour_targets[b, fg_indices]  # Tensor[num_pixels, samples', 2]
-
-                    add_to_loss_dict(losses, 'refinement', objectives['refinement'](refined_contours, cc_tar),
-                                     self.weights['refinement'])
+                    for ref_con in all_refined_contours:
+                        add_to_loss_dict(losses, 'refinement', objectives['refinement'](ref_con, cc_tar),
+                                         self.weights['refinement'])
 
                 if (uncertainty is not None and boxes.nelement() > 0 and box_targets is not None and
                         box_targets.nelement() > 0):
@@ -629,16 +644,18 @@ class CPN(nn.Module, HyperparametersMixin):
 
         if self.refinement and self.refinement_iterations > 0:
             num_loops = self.refinement_iterations
-            if self.training and num_loops > 1:
-                num_loops = torch.randint(low=1, high=num_loops + 1, size=())
-            selected_contours = local_refinement(
+            # if self.training and num_loops > 1:  # Note: Changed to fixed num
+            #     num_loops = torch.randint(low=1, high=num_loops + 1, size=())
+            selected_contours, all_ref_selected_contours = local_refinement(
                 selected_contour_proposals, refinement, num_loops=num_loops, num_buckets=self.core.refinement_buckets,
                 original_size=original_size, sampling=sampling, b=b
             )
         else:
             selected_contours = selected_contour_proposals
-        selected_contours[..., 0].clamp_(0, original_size[1] - 1)
-        selected_contours[..., 1].clamp_(0, original_size[0] - 1)
+            all_ref_selected_contours = [selected_contours]
+        for sel_con in all_ref_selected_contours:
+            sel_con[..., 0].clamp_(0, original_size[1] - 1)
+            sel_con[..., 1].clamp_(0, original_size[0] - 1)
 
         # Bounding boxes
         if selected_contours.numel() > 0:
@@ -655,14 +672,29 @@ class CPN(nn.Module, HyperparametersMixin):
                 fourier=selected_fourier,
                 locations=selected_locations,
                 contours=selected_contour_proposals,
+                all_refined_contours=all_ref_selected_contours,
                 refined_contours=selected_contours,
                 boxes=selected_boxes,
                 raw_scores=raw_scores,
                 targets=targets,
                 labels=labels,
                 fg_masks=fg_mask,
+                sampling=sampling,
                 b=b
             )
+
+            # Dummy loss
+            loss = loss + dummy_loss(raw_scores, locations, refinement, uncertainty, fourier)
+
+        # Optional offsets (loss calc etc. not affected)
+        offsets: Union[Tensor, None] = kwargs.pop('offsets', None)
+        if offsets is not None:
+            offsets = offsets[b]
+            offsets_ = offsets[:, None]
+            selected_contours += offsets_  # assuming xy format
+            selected_contour_proposals += offsets_  # assuming xy format
+            selected_boxes += offsets.repeat((1,) * (offsets.ndim - 1) + (2,))  # assuming xy format
+            selected_locations += offsets  # assuming xy format
 
         if self.training and not self.full_detail:
             return OrderedDict({
