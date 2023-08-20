@@ -1127,6 +1127,8 @@ def from_h5(filename, *keys, **keys_slices):
         Data from hdf5 file. As tuple if multiple keys are provided.
     """
     with h5py.File(filename, 'r') as h:
+        if len(keys) == 0:
+            print('Available keys:', list(h.keys()), flush=True)
         res = tuple(h[k][:] for k in keys) + tuple(h[k][v] for k, v in keys_slices.items())
     if len(res) == 1:
         res, = res
