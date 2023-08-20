@@ -255,13 +255,16 @@ def clip_contour_(contour, size):
 def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, gap=3, dtype='int32'):
     """Contours to labels.
 
-    Converts contours to label image.
+    Convert contours to label image.
 
     Notes:
-        ~137 ms for contours.shape=(1284, 128, 2), size=(1000, 1000).
+        - ~137 ms for contours.shape=(1284, 128, 2), size=(1000, 1000).
+        - Label images come with channels, as contours may assign pixels to multiple objects.
+          Since such multi-assignments cannot be easily encoded in a channel-free label image, channels are used.
+          To remove channels refer to `resolve_label_channels`.
 
     Args:
-        contours: Contours. Array[num_contours, num_points, 2] or List[Array[num_points, 2]].
+        contours: Contours of a single image. Array[num_contours, num_points, 2] or List[Array[num_points, 2]].
         size: Label image size. (height, width).
         rounded: Whether to round contour coordinates.
         clip: Whether to clip contour coordinates to given `size`.
@@ -270,7 +273,8 @@ def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, ga
         dtype: Data type of label image.
 
     Returns:
-        Array[height, width, channels]. Channels are used to model overlap.
+        Array[height, width, channels]. Since contours may assign pixels to multiple objects, the label image comes
+        with channels. To remove channels refer to `resolve_label_channels`.
     """
     labels = np.zeros(tuple(size) + (initial_depth,), dtype=dtype)
     lbl = 1
@@ -288,6 +292,47 @@ def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, ga
             labels = np.concatenate((labels, np.zeros(size, dtype=dtype)[..., None]), axis=-1)
         labels[ymin:ymin + a.shape[0], xmin:xmin + a.shape[1], i] += a
     return labels
+
+
+def resolve_label_channels(labels, method='dilation', max_iter=999, kernel=(3, 3)):
+    """Resolve label channels.
+
+    Remove channels from a label image.
+    Pixels that are assigned to exactly one foreground label remain as is.
+    Pixels that are assigned to multiple foreground labels present a conflict, as they cannot be described by a
+    channel-less label image. Such conflicts are resolved by `method`.
+
+    Args:
+        labels: Label image. Array[h, w, c].
+        method: Method to resolve overlapping regions.
+        max_iter: Max iteration.
+        kernel: Kernel.
+
+    Returns:
+        Labels with channels removed. Array[h, w].
+    """
+    if isinstance(kernel, (tuple, list)):
+        kernel = cv2.getStructuringElement(1, kernel)
+    mask_sm = np.sum(labels > 0, axis=-1)
+    mask = mask_sm > 1  # all overlaps
+    if mask.any():
+        if method == 'dilation':
+            mask_ = mask_sm == 1  # all cores
+            lbl = np.zeros(labels.shape[:2], dtype='float64')
+            lbl[mask_] = labels.max(-1)[mask_]
+            for _ in range(max_iter):
+                lbl_ = np.copy(lbl)
+                m = mask & (lbl <= 0)
+                if not np.any(m):
+                    break
+                lbl[m] = cv2.dilate(lbl, kernel=kernel)[m]
+                if np.allclose(lbl_, lbl):
+                    break
+        else:
+            raise ValueError(f'Invalid method: {method}')
+    else:
+        lbl = labels.max(-1)
+    return lbl.astype(labels.dtype)
 
 
 def contours2properties(contours, *properties, round=True, **kwargs):
