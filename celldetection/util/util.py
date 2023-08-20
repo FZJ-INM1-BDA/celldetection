@@ -996,6 +996,15 @@ class GpuStats:
             util=Percent(uti.gpu)
         )
 
+    def dict(self, byte_lvl=3, prefix='gpu'):
+        d = {}
+        for i, stat in self:
+            for k, v in stat.items():
+                if isinstance(v, Bytes):
+                    v = np.round(float(v) / (2 ** (10 * byte_lvl)), 2)
+                d[f'{prefix}{i}-{k}'] = float(v)
+        return d
+
     def __str__(self):
         deli = self.delimiter
         return deli.join([f'gpu{i}({deli.join([f"{k}: {v}" for k, v in stat.items()])})' for i, stat in self])
