@@ -30,7 +30,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'ensure_num_tuple', 'get_nd_conv', 'get_nd_linear', 'get_nd_dropout', 'get_nd_max_pool', 'get_nd_batchnorm',
            'get_warmup_factor', 'print_to_file', 'NormProxy', 'num_bytes', 'from_h5', 'update_dict_',
            'get_tiling_slices', 'get_nn', 'copy_script', 'hash_file', 'append_hash_to_filename', 'save_fetchable_model',
-           'load_model']
+           'load_model', 'freeze_', 'unfreeze_', 'freeze_submodules_', 'unfreeze_submodules_']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
@@ -1278,3 +1278,69 @@ def update_dict_(dst, src, override=False, keys: Union[List[str], Tuple[str]] = 
             continue
         if override or k not in dst:
             dst[k] = v
+
+
+def freeze_(module: "nn.Module", recurse=True):
+    """Freeze.
+
+    Freezes a module by setting `param.requires_grad=False` and calling `module.eval()`.
+
+    Args:
+        module: Module.
+        recurse: Whether to freeze parameters of this layer and submodules or only parameters that are direct members
+            of this module.
+    """
+    for param in module.parameters(recurse=recurse):
+        param.requires_grad = False
+    module.eval()
+
+
+def unfreeze_(module: "nn.Module", recurse=True):
+    """Unfreeze.
+
+    Unfreezes a module by setting `param.requires_grad=True` and calling `module.train()`.
+
+    Args:
+        module: Module.
+        recurse: Whether to unfreeze parameters of this layer and submodules or only parameters that are direct members
+            of this module.
+    """
+    for param in module.parameters(recurse=recurse):
+        param.requires_grad = False
+    module.train()
+
+
+def freeze_submodules_(module: "nn.Module", *names, recurse=True):
+    """Freeze specific submodules.
+
+    Freezes submodules by setting `param.requires_grad=False` and calling `submodule.eval()`.
+
+    Args:
+        module: Module.
+        names: Names of submodules.
+        recurse: Whether to freeze parameters of specified modules and their respective submodules or only parameters
+            that are direct members of the specified submodules.
+    """
+    assert len(names), 'Specify at least one submodule by name.'
+    if len(names) == 1 and isinstance(names[0], (tuple, list)):
+        names, = names
+    for n in names:
+        freeze_(module.get_submodule(n), recurse=recurse)
+
+
+def unfreeze_submodules_(module: "nn.Module", *names, recurse=True):
+    """Unfreeze specific submodules.
+
+    Unfreezes submodules by setting `param.requires_grad=True` and calling `submodule.train()`.
+
+    Args:
+        module: Module.
+        names: Names of submodules.
+        recurse: Whether to unfreeze parameters of specified modules and their respective submodules or only parameters
+            that are direct members of the specified submodules.
+    """
+    assert len(names), 'Specify at least one submodule by name.'
+    if len(names) == 1 and isinstance(names[0], (tuple, list)):
+        names, = names
+    for n in names:
+        unfreeze_(module.get_submodule(n), recurse=recurse)
