@@ -3,7 +3,7 @@ from torch import Tensor
 import torchvision.ops.boxes as bx
 from typing import Tuple
 
-__all__ = ['nms', 'contours2boxes', 'pairwise_box_iou', 'pairwise_generalized_box_iou']
+__all__ = ['nms', 'contours2boxes', 'pairwise_box_iou', 'pairwise_generalized_box_iou', 'filter_by_box_voting']
 
 
 def nms(boxes, scores, thresh=.5) -> torch.Tensor:
@@ -33,6 +33,33 @@ def nms(boxes, scores, thresh=.5) -> torch.Tensor:
     torch.logical_not(vals, out=vals)
     torch.logical_or(vals, idx >= torch.arange(mask.shape[0], device=mask.device), out=vals)
     return indices[vals]
+
+
+def filter_by_box_voting(boxes, thresh, min_vote, return_votes=False):
+    """Filter by box voting.
+
+    Filter boxes by popular vote. A box receives a vote if it has an IoU larger than `thresh` with another box.
+    Each box also votes for itself, hence, the smallest possible vote is 1.
+
+    Args:
+        boxes: Boxes.
+        thresh: IoU threshold for two boxes to be considered redundant, counting as a vote for both boxes.
+        min_vote: Minimum voting for a box to be accepted. A vote is the sum of IoUs of a box compared to all `boxes`,
+            including itself. Hence, the smallest possible vote is 1.
+        return_votes: Whether to return voting results.
+
+    Returns:
+        Keep indices and optionally voting results.
+    """
+    keep_indices = torch.arange(len(boxes), device=boxes.device, dtype=torch.int)
+    iou = bx.box_iou(boxes, boxes)
+    iou *= iou > thresh  # consistent with nms thresh
+    votes = iou.sum(-1)
+    votes_mask = votes >= min_vote
+    keep_indices = keep_indices[votes_mask]
+    if return_votes:
+        return keep_indices, votes[votes_mask]
+    return keep_indices
 
 
 def contours2boxes(contours, axis=-2):
