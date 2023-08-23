@@ -5,24 +5,26 @@ from typing import Any, Optional, Dict, List, Tuple, Union, Sequence, Callable
 from ..util.schedule import Config, conf2scheduler, conf2optimizer
 from ..util.util import asnumpy, get_tiling_slices, fetch_model, load_model
 from torch import optim, Tensor, nn
-from collections import OrderedDict
-from ..data.instance_eval import LabelMatcher
+from collections import OrderedDict, ChainMap
+from ..data.instance_eval import LabelMatcher, LabelMatcherList
 from ..data.cpn import contours2labels
 from ..data.misc import channels_first2channels_last
 from ..ops.cpn import remove_border_contours
 from . import cpn
 from ..visualization.images import show_detection, imshow_row
-import pandas as pd
-from torch.distributed import is_available, all_gather_object, get_world_size, is_initialized
+from torch.distributed import is_available, all_gather_object, get_world_size, is_initialized, get_rank
 from itertools import chain
 import numpy as np
 from os.path import isfile
 from torchvision.ops.boxes import remove_small_boxes, nms
 from torch.optim.lr_scheduler import SequentialLR
 from ..optim.lr_scheduler import WarmUp
+from ..util.util import GpuStats
 
 STEP_OUTPUT = Union[Tensor, Dict[str, Any]]
 EPOCH_OUTPUT = List[STEP_OUTPUT]
+
+GPU_STATS = GpuStats() if torch.cuda.is_available() else None
 
 
 class LitCpn(pl.LightningModule):
@@ -46,9 +48,6 @@ class LitCpn(pl.LightningModule):
         self.val_iou_thresholds = (.5, .6, .7, .8, .9)
         self.test_iou_thresholds = (.5, .6, .7, .8, .9)
         self.losses_prog_bar = losses_prog_bar
-        self.local_tabs: Dict[str, pd.DataFrame] = {}  # local to process
-        self.tabs: Dict[str, pd.DataFrame] = {}  # synced tabs
-        self.sync_tabs = is_available() and is_initialized()
         self.warmup_steps = warmup_steps
         self._optimizer = optimizer
         self._scheduler = scheduler
@@ -58,6 +57,25 @@ class LitCpn(pl.LightningModule):
         self._eval_zero_division = kwargs.get('eval_zero_division', 0.)
         self._validation_outputs = None
         self._test_outputs = None
+        self._predict_outputs = None
+        self._val_mean_keys = (
+            'f1',
+
+            'f1_np',
+            'jaccard_np',
+            'fowlkes_mallows_np',
+            'recall',
+            'precision',
+
+            'avg_recall',
+            'avg_precision',
+            'avg_f1',
+            'avg_jaccard',
+            'avg_fowlkes_mallows',
+        )
+        self._val_sum_keys = ('true_positives', 'false_negatives', 'false_positives')
+        self._test_mean_keys = tuple(self._val_mean_keys)
+        self._test_sum_keys = tuple(self._val_sum_keys)
 
     @staticmethod
     def build_model(model: str, *args, **kwargs):
@@ -76,11 +94,12 @@ class LitCpn(pl.LightningModule):
             if logger is not None:
                 logger.add_images('inputs', inputs, self.global_step)
         outputs: dict = self.model(inputs, targets=batch)
+        log_d = {} if GPU_STATS is None else GPU_STATS.dict(prefix='gpus/gpu')
         losses = outputs.get('losses')
         losses['loss'] = losses.get('loss', outputs['loss'])
         if losses is not None and isinstance(losses, dict):
-            self.log_dict({f'losses/{k}': v for k, v in losses.items() if v is not None},
-                          prog_bar=self.losses_prog_bar, logger=True, on_step=True)
+            log_d.update({f'losses/{k}': v for k, v in losses.items() if v is not None})
+            self.log_dict(log_d, prog_bar=self.losses_prog_bar, logger=True, on_step=True)
         return outputs
 
     def training_step_end(self, training_step_outputs):
@@ -134,113 +153,125 @@ class LitCpn(pl.LightningModule):
                 global_step=self.global_step,
                 close=close
             )
+            plt.close('all')  # should be done above
 
-    def evaluation_step(self, batch: dict, batch_idx: int, prefix: str,
-                        iou_thresholds: Sequence[float]) -> List[pd.DataFrame]:
+    def evaluation_step(self, batch: dict, batch_idx: int, prefix: str):
         inputs = batch[self.inputs_key]
-        batch_size = inputs.shape[0]
+        indices = asnumpy(batch['indices'])
         outputs: dict = self(inputs)  # TODO: Add val loss
         contours = asnumpy(outputs['contours'])
         targets = asnumpy(batch[self.targets_key])
         if self._log_figures:
             self.log_figures(tag=f'{prefix}/batch{batch_idx}', inputs=inputs, contours=contours)
-        matches = []
-        tabs = []
-        mean_keys = ('f1', 'jaccard', 'fowlkes_mallows', 'recall', 'precision', 'score_thresh', 'nms_thresh')
-        sum_keys = ('tp', 'fn', 'fp')
-        for i, (cons, target) in enumerate(zip(contours, targets)):
-            tab = None
+        matches = {}
+        for i, (cons, target, index) in enumerate(zip(contours, targets, indices)):
             prediction = contours2labels(cons, size=inputs[i].shape[-2:], initial_depth=3)
             target = channels_first2channels_last(target)
-            match = LabelMatcher(prediction, target, zero_division=0.)
-            matches.append(match)
-            for match.iou_thresh in iou_thresholds:
-                tab_ = pd.DataFrame(data=[dict(
-                    epoch=self.trainer.current_epoch,
-                    f1=match.f1,
-                    jaccard=match.jaccard,
-                    fowlkes_mallows=match.fowlkes_mallows,
-                    recall=match.recall,
-                    precision=match.precision,
-                    tp=match.true_positives,
-                    fp=match.false_positives,
-                    fn=match.false_negatives,
-                    score_thresh=self.model.__dict__.get('score_thresh'),
-                    nms_thresh=self.model.__dict__.get('nms_thresh'),
-                    iou_thresh=match.iou_thresh,
-                )])
-                tab = pd.concat((tab, tab_), ignore_index=True)
+            matches[index] = LabelMatcher(prediction, target, zero_division=0.)
+        return matches
 
-                # Log results with mean reduce
-                self.log_dict(
-                    {f'{prefix}_detail_mean/{k}_{int(float(tab_.iou_thresh) * 100)}': float(tab.get(k).mean()) for k in
-                     mean_keys},
-                    sync_dist=True, logger=True, on_epoch=True, batch_size=batch_size
-                )
+    def evaluation_epoch_end(self, outputs, prefix, iou_thresholds, mean_keys, sum_keys) -> None:
+        """
 
-                # Log results with sum reduce
-                self.log_dict(
-                    {f'{prefix}_detail_sum/{k}_{int(float(tab_.iou_thresh) * 100)}': float(tab.get(k).mean()) for k in
-                     sum_keys},
-                    sync_dist=True, reduce_fx='sum', logger=True, on_epoch=True, batch_size=batch_size
-                )
-            tabs.append(tab)
+        Note:
+            `outputs` is a nested sequence of dictionaries, mapping data_index to data_item. Use of dictionary prevents
+            double calculations of examples during evaluation. Note that double calculations are the default
+            behaviour in PyTorch's DistributedSampler and example omission the only provided
+            alternative (drop_last). Both would give wrong evaluation results.
+            The use of dictionaries prevents this, yielding correct evaluation results.
 
-            # Log average results with mean reduce
-            self.log_dict({f'{prefix}/{k}': float(tab.get(k).mean()) for k in mean_keys}, sync_dist=True,
-                          prog_bar=True,
-                          logger=True, on_epoch=True, batch_size=batch_size)
+        Args:
+            outputs:
+            prefix:
+            iou_thresholds:
+            mean_keys:
+            sum_keys:
 
-            # Log average results with sum reduce
-            self.log_dict({f'{prefix}/{k}': float(tab.get(k).mean()) for k in sum_keys}, sync_dist=True,
-                          reduce_fx='sum', logger=True, on_epoch=True, batch_size=batch_size)
-        self.local_tabs[prefix] = pd.concat([self.local_tabs.get(prefix, None)] + tabs)
+        Returns:
 
-        return tabs
-
-    def evaluation_epoch_end(self, outputs, prefix) -> None:
-        from ..mpi import get_comm
-        comm, rank, ranks = get_comm(None, True)
-
+        """
         if isinstance(outputs, list):
-            if self.sync_tabs and is_available() and is_initialized():
-                o = [None] * get_world_size()
-                all_gather_object(o, outputs)
+            if is_available() and is_initialized():
+                o = ([None] * get_world_size())
+                all_gather_object(obj=outputs, object_list=o)  # give every rank access to results
                 outputs = o
-            while len(outputs) and isinstance(outputs[0], list):
-                outputs = list(chain.from_iterable(outputs))
-            tabs = outputs
-        elif isinstance(outputs, pd.DataFrame):
-            tabs: List[pd.DataFrame] = [outputs]
+            if outputs is not None:
+                while len(outputs) and isinstance(outputs[0], list):
+                    outputs = list(chain.from_iterable(outputs))
+                assert isinstance(outputs[0], dict)
+                outputs = ChainMap(*outputs)
         else:
             raise ValueError(type(outputs))
 
-        if tabs is not None:
-            self.tabs[prefix] = pd.concat([self.tabs.get(prefix, None)] + tabs)
+        if outputs is not None:
+            res = LabelMatcherList(list(outputs.values()))
+
+            # Gather results for different IoU thresholds
+            primary = {k: [] for k in mean_keys + sum_keys}
+            primary['score_thresh'] = self.model.__dict__.get('score_thresh')
+            primary['nms_thresh'] = self.model.__dict__.get('nms_thresh')
+            primary['num_examples'] = len(res)
+            secondary = {}
+            for res.iou_thresh in iou_thresholds:
+                for k in mean_keys + sum_keys:
+                    v = getattr(res, k)
+                    primary[k].append(v)
+                    secondary[f'{k}_{int(res.iou_thresh * 100)}'] = v
+
+            # Reduce results
+            for k in mean_keys:
+                primary[k] = np.mean(primary[k])
+            for k in sum_keys:
+                primary[k] = np.sum(primary[k])
+
+            self.log_dict({f'{prefix}/{k}': float(v) for k, v in primary.items()}, logger=True, sync_dist=True,
+                          reduce_fx='max')  # ranks are assumed to have same results
+            self.log_dict({f'{prefix}_detail/{k}': float(v) for k, v in secondary.items()}, logger=True, sync_dist=True,
+                          reduce_fx='max')
 
     def on_validation_epoch_start(self) -> None:
         self._validation_outputs = []
 
-    def validation_step(self, batch: dict, batch_idx: int) -> List[pd.DataFrame]:
-        outputs = self.evaluation_step(batch, batch_idx, 'val', iou_thresholds=self.val_iou_thresholds)
+    def validation_step(self, batch: dict, batch_idx: int):
+        outputs = self.evaluation_step(batch, batch_idx, 'val')
         self._validation_outputs.append(outputs)
         return outputs
 
     def on_validation_epoch_end(self) -> None:
         assert self._validation_outputs is not None
         outputs = self._validation_outputs
-        self.evaluation_epoch_end(outputs, 'val')
+        self.evaluation_epoch_end(outputs, 'val', iou_thresholds=self.val_iou_thresholds,
+                                  sum_keys=self._val_sum_keys, mean_keys=self._val_mean_keys)
 
     def on_test_epoch_start(self) -> None:
         self._test_outputs = []
 
-    def test_step(self, batch: dict, batch_idx: int) -> List[pd.DataFrame]:
-        outputs = self.evaluation_step(batch, batch_idx, 'test', iou_thresholds=self.test_iou_thresholds)
+    def test_step(self, batch: dict, batch_idx: int):
+        outputs = self.evaluation_step(batch, batch_idx, 'test')
         self._test_outputs.append(outputs)
 
     def on_test_epoch_end(self) -> None:
         outputs = self._test_outputs
-        self.evaluation_epoch_end(outputs, 'test')
+        self.evaluation_epoch_end(outputs, 'test', iou_thresholds=self.test_iou_thresholds,
+                                  sum_keys=self._test_sum_keys, mean_keys=self._test_mean_keys)
+
+    def on_predict_epoch_start(self) -> None:
+        self._predict_outputs = []
+
+    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> Any:
+        if isinstance(batch, Tensor):
+            return super().predict_step(batch, batch_idx, dataloader_idx)
+        assert isinstance(batch, dict)
+        inputs = batch.pop(self.inputs_key)
+        assert inputs is not None
+        out = OrderedDict(batch)
+        out.update(self(inputs, **batch))
+        self._predict_outputs.append(out)
+        return out
+
+    def on_predict_epoch_end(self) -> None:
+        outputs = self._predict_outputs
+        return outputs
 
     def forward(
             self,
@@ -255,8 +286,8 @@ class LitCpn(pl.LightningModule):
         device = self.device
         if inputs.device != device:
             inputs = inputs.to(device)
-        
-        return self.model(inputs, targets=targets)
+
+        return self.model(inputs, targets=targets, **kwargs)
 
     def forward_tiled(
             self,
@@ -276,9 +307,14 @@ class LitCpn(pl.LightningModule):
         border_removal = kwargs.get('border_removal', 8)
         box_min_size = kwargs.get('min_box_size', 1.)
         nms_thresh = kwargs.get('nms_thresh', self.model.__dict__.get('nms_thresh', None))
+        inputs_mask = kwargs.get('inputs_mask')
         assert nms_thresh is not None, 'Could not retrieve nms_thresh from model. Please specify it in forward method.'
         for i, slices_ in enumerate(slices):
             crop = inputs[(...,) + tuple(slices_)].to(device)
+            if inputs_mask is not None:
+                crop_m = inputs_mask[(...,) + tuple(slices_)].to(device)
+                if not torch.any(crop_m):
+                    continue  # skip masked out tile
             outputs = self.forward(crop, targets=kwargs.get('targets'), max_imsize=None)
             h_i, w_i = np.unravel_index(i, slices_by_dim)
             h_start, w_start = [s.start for s in slices_]
@@ -302,7 +338,7 @@ class LitCpn(pl.LightningModule):
                 contours, scores, boxes = (c[keep] for c in (contours, scores, boxes))
                 extra = [e[keep] for e in extra]
 
-                # Add offset
+                # Add offset  # TODO: Replace with cpn internal offsets
                 contours[..., 1] += h_start
                 contours[..., 0] += w_start
                 boxes[..., [0, 2]] += w_start
@@ -317,10 +353,11 @@ class LitCpn(pl.LightningModule):
                 )
 
         final = OrderedDict(
-            contours=[torch.cat([res_['contours'] for res_ in res]) for res in results],
-            scores=[torch.cat([res_['scores'] for res_ in res]) for res in results],
-            boxes=[torch.cat([res_['boxes'] for res_ in res]) for res in results],
-            **{k: [torch.cat([res_['extra'][i] for res_ in res]) for res in results] for i, k in enumerate(extra_keys)}
+            contours=[torch.cat([res_['contours'] for res_ in res if res_ is not None]) for res in results],
+            scores=[torch.cat([res_['scores'] for res_ in res if res_ is not None]) for res in results],
+            boxes=[torch.cat([res_['boxes'] for res_ in res if res_ is not None]) for res in results],
+            **{k: [torch.cat([res_['extra'][i] for res_ in res if res_ is not None]) for res in results] for i, k in
+               enumerate(extra_keys)}
         )
 
         if not self.training:
