@@ -227,9 +227,11 @@ def contours2boxes(contours):
     return boxes
 
 
-def render_contour(contour, val=1, dtype='int32', round=False):
-    xmin, ymin = np.floor(np.min(contour, axis=0)).astype('int')
-    xmax, ymax = np.ceil(np.max(contour, axis=0)).astype('int')
+def render_contour(contour, val=1, dtype='int32', round=False, reference=None):
+    if reference is None:
+        reference = contour
+    xmin, ymin = np.floor(np.min(reference, axis=0)).astype('int')
+    xmax, ymax = np.ceil(np.max(reference, axis=0)).astype('int')
     a = np.zeros((ymax - ymin + 1, xmax - xmin + 1), dtype=dtype)
     if round:
         contour = contour.round()
