@@ -6,6 +6,13 @@ from .segmentation import filter_instances_
 from .misc import labels2properties
 
 
+__all__ = [
+    'CPNTargetGenerator', 'contours2labels', 'render_contour', 'clip_contour_', 'masks2labels',
+    'contours2boxes', 'contours2properties', 'resolve_label_channels',
+    'filter_contours_by_intensity'
+]
+
+
 def efd(contour, order=10, epsilon=1e-6):
     """Elliptic fourier descriptor.
 
