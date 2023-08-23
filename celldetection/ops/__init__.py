@@ -7,3 +7,4 @@ from .draw import *
 from .boxes import *
 from .normalization import *
 from .features import *
+from .cpn import *
