@@ -256,3 +256,38 @@ def remove_border_contours(contours, size, padding=1, top=True, right=True, bott
     if left:
         keep = keep & (x > padding).all(1)
     return keep
+
+
+def filter_contours_by_stitching_rule(contours, tile_size, overlaps, rule='ex_br', offsets=None, indices=False):
+    """
+
+    Notes:
+        - The implemented stitching rules are considered greedy algorithms.
+        - Border exclusion rules assume border behaviour of models to be consistent, which may not
+          be the case in practice
+
+    Args:
+        contours: Contours. Tensor[num_contours, num_points, 2]
+        tile_size: Tile size. Tensor[2] or tuple as (height, width).
+        overlaps: Overlaps for start and end of each spatial dimension. Tensor[2, 2].
+        rule: Stitching rule. Comma separation allowed.
+        offsets: Optional offsets for `contours`.
+        indices: Whether to return keep indices instead of a keep mask.
+
+    Returns:
+        Keep indices or mask.
+    """
+    if not isinstance(tile_size, Tensor):
+        tile_size = torch.as_tensor(tile_size, device=contours.device)
+    if offsets is not None:
+        contours = contours + offsets
+    rule = rule.split(',')
+    if 'ex_br' in rule:
+        stop = (tile_size - overlaps[:, 1])[[1, 0]]
+        right_bottom = (contours >= stop).any(-1).all(-1)
+        keep = ~right_bottom
+    else:
+        raise ValueError(f'Unknown stitching rule: {rule}')
+    if indices:
+        keep, = torch.where(keep)  # assuming all rules return masks
+    return keep
