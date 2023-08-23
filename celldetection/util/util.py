@@ -1051,36 +1051,52 @@ class Tiling:
 def get_tiling_slices(
         size: Sequence[int],
         crop_size: Union[int, Sequence[int]],
-        strides: Union[int, Sequence[int]]
-) -> Union[Iterable[slice], Tuple[int]]:
+        strides: Union[int, Sequence[int]],
+        return_overlaps=False
+) -> Union[
+    Tuple[Iterable[slice], Tuple[int]],
+    Tuple[Iterable[slice], Iterable[Tuple[int]], Tuple[int]]
+]:
     """Get tiling slices.
 
     Args:
         size: Reference size as tuple.
         crop_size: Crop size.
         strides: Strides.
+        return_overlaps: Whether to return overlaps.
 
     Returns:
         Iterable[slice], Tuple[int]:
             Iterator of tiling slices (each slice defining a tile),
             Number of tiles per dimension as tuple.
+        Iterable[slice], Iterable[Tuple[int]], Tuple[int]:
+            Iterator of tiling slices (each slice defining a tile),
+            Iterator of overlaps (overlaps with adjacent tiles for each tile),
+            Number of tiles per dimension as tuple.
     """
     assert isinstance(size, (tuple, list))
     crop_size = ensure_num_tuple(crop_size, len(size))
     strides = ensure_num_tuple(strides, len(size))
-    slices, shape = [], []
+    slices, shape, overlaps = [], [], []
     for axis in range(len(size)):
         if crop_size[axis] >= size[axis]:
             tl = [size[axis]]
         else:
-            tl = range(crop_size[axis], max(2, 1 + int(np.ceil(size[axis] / strides[axis]))) * strides[axis],
+            tl = range(crop_size[axis],
+                       max(2, 2 + int(np.ceil((size[axis] - crop_size[axis]) / strides[axis]))) * strides[axis],
                        strides[axis])
-        axis_slices = []
-        for t in tl:
-            stop = min(t, size[axis])
-            axis_slices.append(slice(max(0, stop - crop_size[axis]), stop))
-        slices.append(axis_slices), shape.append(len(tl))
-    return product(*slices), shape
+        stops = np.minimum(tl, size[axis])
+        starts = np.maximum(0, stops - crop_size[axis])
+        overlaps_start = np.concatenate((starts[:1], stops[:-1])) - starts
+        axis_slices, axis_overlaps = [], []
+        for a, b, *ov in zip(starts, stops, overlaps_start, np.concatenate((overlaps_start[1:], [0]))):
+            axis_slices.append(slice(a, b))
+            axis_overlaps.append(ov)
+        slices.append(axis_slices), shape.append(len(starts)), overlaps.append(axis_overlaps)
+    slices = product(*slices)
+    if return_overlaps:
+        return slices, product(*overlaps), shape
+    return slices, shape
 
 
 def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, create_dataset_kw: dict = None,
