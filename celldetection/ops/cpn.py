@@ -217,7 +217,7 @@ def resolve_refinement_buckets(samplings, num_buckets):
     )
 
 
-def remove_border_contours(contours, size, padding=1, top=True, right=True, bottom=True, left=True):
+def remove_border_contours(contours, size, padding=1, top=True, right=True, bottom=True, left=True, offsets=None):
     """Remove border contours.
 
     Remove contours that touch border regions.
@@ -231,11 +231,14 @@ def remove_border_contours(contours, size, padding=1, top=True, right=True, bott
         right: Whether to test right border.
         bottom: Whether to test bottom border.
         left: Whether to test left border.
+        offsets: Optional contour offsets in xy format.
 
     Returns:
         Keep mask as ``Tensor[num_contours]``.
     """
     h, w = size[:2]
+    if offsets is not None:
+        contours = contours + offsets
     x, y = contours[..., 0], contours[..., 1]
     keep = torch.ones(len(contours), dtype=torch.bool, device=contours.device)
     if top:
