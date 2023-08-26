@@ -330,7 +330,7 @@ def imshow_row(*images, titles=None, figsize=(3, 3), tight=True, **kwargs):
 def imshow_col(*images, titles=None, figsize=(3, 3), tight=True, **kwargs):
     """Imshow row.
 
-    Display a list of images in a row.
+    Display a list of images in a column.
 
     Args:
         *images: Images.

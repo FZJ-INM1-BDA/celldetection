@@ -44,9 +44,9 @@ pip install git+https://github.com/FZJ-INM1-BDA/celldetection.git
 model = cd.fetch_model(model_name, check_hash=True)
 ```
 
-| model name                                  | training data                                                                                                        |
-|---------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| `ginoro_CpnResNeXt101UNet-fbe875f1a3e5ce2c` | BBBC039, BBBC038, Omnipose, Cellpose, Sartorius - Cell Instance Segmentation, Livecell, NeurIPS 22 CellSeg Challenge |
+| model name                                  | training data                                                                                                        |                                           link                                            |
+|---------------------------------------------|----------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------:| 
+| `ginoro_CpnResNeXt101UNet-fbe875f1a3e5ce2c` | BBBC039, BBBC038, Omnipose, Cellpose, Sartorius - Cell Instance Segmentation, Livecell, NeurIPS 22 CellSeg Challenge | [🔗](https://celldetection.org/torch/models/ginoro_CpnResNeXt101UNet-fbe875f1a3e5ce2c.pt) |
 
 <details>
   <summary style="font-weight: bold; color: #888888">Run a demo with a pretrained model</summary>
