@@ -4,6 +4,7 @@
 [![Test](https://github.com/FZJ-INM1-BDA/celldetection/workflows/Test/badge.svg)](https://github.com/FZJ-INM1-BDA/celldetection/actions?query=workflow%3ATest)
 [![PyPI](https://img.shields.io/pypi/v/celldetection?l)](https://pypi.org/project/celldetection/)
 [![Documentation Status](https://readthedocs.org/projects/celldetection/badge/?version=latest)](https://celldetection.readthedocs.io/en/latest/?badge=latest)
+[![DOI](https://zenodo.org/badge/349111085.svg)](https://zenodo.org/badge/latestdoi/349111085)
 
 ## ⭐ Showcase
 
