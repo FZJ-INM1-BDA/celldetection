@@ -173,7 +173,10 @@ def apply_model(img, models, trainer, crop_size=(768, 768), strides=(384, 384), 
     h_tiles, w_tiles = tile_loader.num_slices_per_axis
     nms_thresh = None
     for model_name in models:
-        model = cd.models.LitCpn(model_name)
+        if model_name.endswith('.ckpt'):
+            model = cd.models.LitCpn.load_from_checkpoint(model_name, map_location='cpu')
+        else:
+            model = cd.load_model(model_name, map_location='cpu')
         model.eval()
         model.requires_grad_(False)
         nms_thresh = kwargs.get('nms_thresh', model.model.nms_thresh)
@@ -301,7 +304,7 @@ def main():
     outputs = args.outputs
     makedirs(outputs, exist_ok=True)
     if isdir(args.models):
-        models = sorted(glob(join(args.models, '*.pt*')))
+        models = sorted(glob(join(args.models, '*.pt'))) + sorted(glob(join(args.models, '*.ckpt')))
     else:
         models = sorted(glob(args.models))
 
