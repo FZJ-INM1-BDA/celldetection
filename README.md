@@ -1,6 +1,6 @@
 # Cell Detection
 
-[![Downloads](https://pepy.tech/badge/celldetection?l)](https://pepy.tech/project/celldetection)
+[![Downloads](https://static.pepy.tech/badge/celldetection?l)](https://pepy.tech/project/celldetection)
 [![Test](https://github.com/FZJ-INM1-BDA/celldetection/workflows/Test/badge.svg)](https://github.com/FZJ-INM1-BDA/celldetection/actions?query=workflow%3ATest)
 [![PyPI](https://img.shields.io/pypi/v/celldetection?l)](https://pypi.org/project/celldetection/)
 [![Documentation Status](https://readthedocs.org/projects/celldetection/badge/?version=latest)](https://celldetection.readthedocs.io/en/latest/?badge=latest)
@@ -282,6 +282,52 @@ model = cd.models.ResNet50(in_channels=3, nd=3)
 - [`cd.models.MobileNetV3Small`](https://docs.celldetection.org/en/latest/celldetection.models.html#celldetection.models.mobilenetv3.MobileNetV3Small)
 
 </details>
+
+## 🐳 Docker
+
+Find us on Docker Hub: https://hub.docker.com/r/ericup/celldetection
+
+You can pull the latest version of `celldetection` via:
+```
+docker pull ericup/celldetection:latest
+```
+
+<details>
+    <summary style="font-weight: bold; color: #888888">CPN inference via Docker with GPU</summary>
+
+```
+docker run --rm \
+  -v $PWD/docker/outputs:/outputs/ \
+  -v $PWD/docker/inputs/:/inputs/ \
+  -v $PWD/docker/models/:/models/ \
+  --gpus="device=0" \
+  celldetection:latest /bin/bash -c \
+  "python cpn_inference.py --tile_size=1024 --stride=768 --precision=32-true"
+```
+</details>
+<details>
+    <summary style="font-weight: bold; color: #888888">CPN inference via Docker with CPU</summary>
+
+```
+docker run --rm \
+  -v $PWD/docker/outputs:/outputs/ \
+  -v $PWD/docker/inputs/:/inputs/ \
+  -v $PWD/docker/models/:/models/ \
+  celldetection:latest /bin/bash -c \
+  "python cpn_inference.py --tile_size=1024 --stride=768 --precision=32-true --accelerator=cpu"
+```
+</details>
+
+
+
+### Apptainer
+
+You can also pull our Docker images for the use with [Apptainer](https://apptainer.org/) (formerly [Singularity](https://github.com/apptainer/singularity)) with this command:
+
+```
+apptainer pull --dir . --disable-cache docker://ericup/celldetection:latest
+```
+
 
 ## 🤗 Hugging Face Spaces
 
