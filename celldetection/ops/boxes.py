@@ -3,11 +3,13 @@ from torch import Tensor
 import torchvision.ops.boxes as bx
 from typing import Tuple, List
 import numpy as np
+from os import name
 
-__all__ = ['nms', 'contours2boxes', 'pairwise_box_iou', 'pairwise_generalized_box_iou', 'filter_by_box_voting']
+WINDOWS = name == 'nt'
 
 
-@torch.compile(dynamic=True)
+
+@torch.compile(dynamic=True, disable=WINDOWS)
 def nms(boxes, scores, thresh=.5) -> torch.Tensor:
     """Non-maximum suppression.
 
@@ -37,7 +39,7 @@ def nms(boxes, scores, thresh=.5) -> torch.Tensor:
     return indices[vals]
 
 
-@torch.compile(dynamic=True)
+@torch.compile(dynamic=True, disable=WINDOWS)
 def get_iou_voting(boxes: Tensor, thresh: float):
     iou = bx.box_iou(boxes, boxes)
     iou *= iou > thresh  # consistent with nms thresh
