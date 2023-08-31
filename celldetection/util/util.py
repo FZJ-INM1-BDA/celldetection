@@ -1083,7 +1083,8 @@ def get_tiling_slices(
             tl = [size[axis]]
         else:
             tl = range(crop_size[axis],
-                       max(2, 2 + int(np.ceil((size[axis] - crop_size[axis]) / strides[axis]))) * strides[axis],
+                       1 + crop_size[axis] + (int(np.ceil((size[axis] - crop_size[axis]) / strides[axis]))) *
+                       strides[axis],
                        strides[axis])
         stops = np.minimum(tl, size[axis])
         starts = np.maximum(0, stops - crop_size[axis])
