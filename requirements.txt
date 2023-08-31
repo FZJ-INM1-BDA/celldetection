@@ -3,8 +3,8 @@ matplotlib
 scipy
 scikit-image
 opencv-python
-torch>=1.10.0
-torchvision>=0.13.0
+torch>=2.0.0
+torchvision
 seaborn
 tqdm
 h5py
