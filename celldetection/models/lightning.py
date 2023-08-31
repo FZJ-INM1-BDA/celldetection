@@ -45,13 +45,15 @@ class LitCpn(pl.LightningModule):
         self.model = model
         self.inputs_key = 'inputs'
         self.targets_key = 'targets'
-        self.val_iou_thresholds = (.5, .6, .7, .8, .9)
-        self.test_iou_thresholds = (.5, .6, .7, .8, .9)
+        self.val_iou_thresholds = kwargs.get('val_iou_thresholds', (.5, .6, .7, .8, .9))
+        self.test_iou_thresholds = kwargs.get('test_iou_thresholds', (.5, .6, .7, .8, .9))
         self.losses_prog_bar = losses_prog_bar
         self.warmup_steps = warmup_steps
         self._optimizer = optimizer
         self._scheduler = scheduler
         self._scheduler_conf = scheduler_conf
+        self._lr_multiplier = kwargs.get('lr_multiplier')
+        self._weight_decay_multiplier = kwargs.get('weight_decay_multiplier')
         self.figsize = kwargs.get('figsize', (32, 18))
         self._log_figures = kwargs.get('log_figures', True)
         self._eval_zero_division = kwargs.get('eval_zero_division', 0.)
@@ -76,6 +78,7 @@ class LitCpn(pl.LightningModule):
         self._val_sum_keys = ('true_positives', 'false_negatives', 'false_positives')
         self._test_mean_keys = tuple(self._val_mean_keys)
         self._test_sum_keys = tuple(self._val_sum_keys)
+        self.max_imsize = kwargs.get('max_imsize', 2048)
 
     @staticmethod
     def build_model(model: str, *args, **kwargs):

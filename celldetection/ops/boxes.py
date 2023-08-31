@@ -1,11 +1,13 @@
 import torch
 from torch import Tensor
 import torchvision.ops.boxes as bx
-from typing import Tuple
+from typing import Tuple, List
+import numpy as np
 
 __all__ = ['nms', 'contours2boxes', 'pairwise_box_iou', 'pairwise_generalized_box_iou', 'filter_by_box_voting']
 
 
+@torch.compile(dynamic=True)
 def nms(boxes, scores, thresh=.5) -> torch.Tensor:
     """Non-maximum suppression.
 
@@ -35,7 +37,15 @@ def nms(boxes, scores, thresh=.5) -> torch.Tensor:
     return indices[vals]
 
 
-def filter_by_box_voting(boxes, thresh, min_vote, return_votes=False):
+@torch.compile(dynamic=True)
+def get_iou_voting(boxes: Tensor, thresh: float):
+    iou = bx.box_iou(boxes, boxes)
+    iou *= iou > thresh  # consistent with nms thresh
+    votes = iou.sum(-1)
+    return votes
+
+
+def filter_by_box_voting(boxes, thresh, min_vote, return_votes: bool = False):
     """Filter by box voting.
 
     Filter boxes by popular vote. A box receives a vote if it has an IoU larger than `thresh` with another box.
@@ -52,9 +62,7 @@ def filter_by_box_voting(boxes, thresh, min_vote, return_votes=False):
         Keep indices and optionally voting results.
     """
     keep_indices = torch.arange(len(boxes), device=boxes.device, dtype=torch.int)
-    iou = bx.box_iou(boxes, boxes)
-    iou *= iou > thresh  # consistent with nms thresh
-    votes = iou.sum(-1)
+    votes = get_iou_voting(boxes, thresh)
     votes_mask = votes >= min_vote
     keep_indices = keep_indices[votes_mask]
     if return_votes:
