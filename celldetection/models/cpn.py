@@ -179,7 +179,8 @@ class CPNCore(nn.Module):
             kernel_size=kwargs.get('kernel_size_score', 7),
             padding=kwargs.get('kernel_size_score', 7) // 2,
             channels_mid=contour_head_channels,
-            stride=contour_head_stride
+            stride=contour_head_stride,
+            activation=kwargs.pop('head_activation_score', kwargs.get('head_activation', 'relu'))
         )
 
         # Location
@@ -189,7 +190,8 @@ class CPNCore(nn.Module):
             kernel_size=kwargs.get('kernel_size_location', 7),
             padding=kwargs.get('kernel_size_location', 7) // 2,
             channels_mid=contour_head_channels,
-            stride=contour_head_stride
+            stride=contour_head_stride,
+            activation=kwargs.pop('head_activation_location', kwargs.get('head_activation', 'relu'))
         )
 
         # Fourier
@@ -199,7 +201,8 @@ class CPNCore(nn.Module):
             kernel_size=kwargs.get('kernel_size_fourier', 7),
             padding=kwargs.get('kernel_size_fourier', 7) // 2,
             channels_mid=contour_head_channels,
-            stride=contour_head_stride
+            stride=contour_head_stride,
+            activation=kwargs.pop('head_activation_fourier', kwargs.get('head_activation', 'relu'))
         )
 
         # Uncertainty
@@ -211,7 +214,8 @@ class CPNCore(nn.Module):
                 padding=kwargs.get('kernel_size_uncertainty', 7) // 2,
                 channels_mid=contour_head_channels,
                 stride=contour_head_stride,
-                final_activation='sigmoid'
+                final_activation='sigmoid',
+                activation=kwargs.pop('head_activation_uncertainty', kwargs.get('head_activation', 'relu'))
             )
         else:
             self.uncertainty_fuse = self.uncertainty_head = None
@@ -225,7 +229,8 @@ class CPNCore(nn.Module):
                 padding=kwargs.get('kernel_size_refinement', 7) // 2,
                 final_activation=ScaledTanh(refinement_margin),
                 channels_mid=refinement_head_channels,
-                stride=refinement_head_stride
+                stride=refinement_head_stride,
+                activation=kwargs.pop('head_activation_refinement', kwargs.get('head_activation', 'relu'))
             )
         else:
             self.refinement_fuse = self.refinement_head = None
