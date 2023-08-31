@@ -42,6 +42,7 @@ def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
     Args:
         dst: Copy destination. Filename or folder.
         no_script_okay: If ``False`` raise ``FileNotFoundError`` if no script is found.
+        frame: Context frame.
         verbose: Whether to print source and destination when copying.
 
     """
@@ -886,7 +887,7 @@ def count_submodules(module: nn.Module, class_or_tuple) -> int:
     Returns:
         Number of submodules.
     """
-    return np.sum([1 for m in module.modules() if isinstance(m, class_or_tuple)])
+    return int(np.sum([1 for m in module.modules() if isinstance(m, class_or_tuple)]))
 
 
 def ensure_num_tuple(v, num=2, msg=''):
