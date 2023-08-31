@@ -461,6 +461,9 @@ class Schedule:
     def to_dict(self):
         return dict(self.values)
 
+    def to_dict_list(self):
+        return [c.to_dict() for c in self]
+
     def __eq__(self, other):
         assert isinstance(other, Schedule)
         return self.values.__eq__(other.to_dict())
