@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import List
 
 __all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially', 'minibatch_std_layer', 'strided_upsampling2d',
-           'interpolate_vector']
+           'interpolate_vector', 'pad_to_div', 'pad_to_size']
 
 
 def downsample_labels(inputs, size: List[int]):
@@ -142,3 +142,48 @@ def interpolate_vector(v, size, **kwargs):
     return torch.squeeze(torch.squeeze(
         F.interpolate(v[None, None], size, **kwargs), 0
     ), 0)
+
+
+def pad_to_size(v, size, return_pad=False, **kwargs):
+    """Pad tp size.
+
+    Applies padding to end of each dimension.
+
+    Args:
+        v: Input Tensor.
+        size: Size tuple. Last element corresponds to last dimension of input `v`.
+        return_pad: Whether to return padding values.
+        **kwargs: Additional keyword arguments for `F.pad`.
+
+    Returns:
+        Padded Tensor.
+    """
+    pad = []
+    for a, b in zip(size, v.shape[-len(size):]):
+        pad += [max(0, a - b), 0]
+    if any(pad):
+        v = F.pad(v, pad[::-1], **kwargs)
+    if return_pad:
+        return v, pad
+    return v
+
+
+def pad_to_div(v, div=32, nd=2, return_pad=False, **kwargs):
+    """Pad to div.
+
+    Applies padding to input Tensor to make it divisible by `div`.
+
+    Args:
+        v: Input Tensor.
+        div: Div tuple. If single integer, `nd` is used to define number of dimensions to pad.
+        nd: Number of dimensions to pad. Only used if `div` is not a tuple or list.
+        return_pad: Whether to return padding values.
+        **kwargs: Additional keyword arguments for `F.pad`.
+
+    Returns:
+        Padded Tensor.
+    """
+    if not isinstance(div, (tuple, list)):
+        div = (div,) * nd
+    size = [(i // d + bool(i % d)) * d for i, d in zip(v.shape[-len(div):], div)]
+    return pad_to_size(v, size, return_pad=return_pad, **kwargs)
