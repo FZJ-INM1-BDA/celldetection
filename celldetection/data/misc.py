@@ -10,7 +10,7 @@ import pandas as pd
 __all__ = ['to_tensor', 'transpose_spatial', 'universal_dict_collate_fn', 'normalize_percentile', 'random_crop',
            'channels_last2channels_first', 'channels_first2channels_last', 'ensure_tensor', 'rgb_to_scalar',
            'padding_stack', 'labels2crops', 'labels2properties', 'rle2mask', 'resample_contours',
-           'labels2property_table']
+           'labels2property_table', 'pad_to_size', 'pad_to_div']
 
 
 def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dims=2, has_batch=False):
@@ -381,3 +381,41 @@ def resample_contours(contours, num=None, close=True, epsilon=1e-6):
 def rescale_image(img, scale, **kwargs):
     target_size = tuple(np.round(np.array(img.shape[:2]) * scale).astype('int'))
     return cv2.resize(img, target_size[::-1], **kwargs)
+
+
+def pad_to_size(v, size, **kwargs):
+    """Pad tp size.
+
+    Applies padding to end of each dimension.
+
+    Args:
+        v: Input array.
+        size: Size tuple. First element corresponds to first dimension of input `v`.
+        **kwargs: Additional keyword arguments for `np.pad`.
+
+    Returns:
+        Padded Array.
+    """
+    pad = [[0, max(0, a - b)] for a, b in zip(size, v.shape)]
+    pad += [[0, 0]] * (len(v.shape) - len(pad))
+    return np.pad(v, pad, **kwargs)
+
+
+def pad_to_div(v, div=32, nd=2, **kwargs):
+    """Pad to div.
+
+    Applies padding to input Array to make it divisible by `div`.
+
+    Args:
+        v: Input array.
+        div: Div tuple. If single integer, `nd` is used to define number of dimensions to pad.
+        nd: Number of dimensions to pad. Only used if `div` is not a tuple or list.
+        **kwargs: Additional keyword arguments for `np.pad`.
+
+    Returns:
+        Padded Array.
+    """
+    if not isinstance(div, (tuple, list)):
+        div = (div,) * nd
+    size = [(i // d + bool(i % d)) * d for i, d in zip(v.shape, div)]
+    return pad_to_size(v, size, **kwargs)
