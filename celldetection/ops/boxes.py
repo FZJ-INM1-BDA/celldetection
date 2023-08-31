@@ -7,9 +7,20 @@ from os import name
 
 WINDOWS = name == 'nt'
 
+__all__ = ['nms', 'contours2boxes', 'pairwise_box_iou', 'pairwise_generalized_box_iou', 'filter_by_box_voting']
 
 
-@torch.compile(dynamic=True, disable=WINDOWS)
+def no_decorator(*args, **kwargs):
+    def decorator(func):
+        return func
+
+    return decorator
+
+
+torch_compile = (no_decorator if WINDOWS else torch.compile)  # TODO: Remove when torch.compile is supports on Windows
+
+
+@torch_compile(dynamic=True)
 def nms(boxes, scores, thresh=.5) -> torch.Tensor:
     """Non-maximum suppression.
 
@@ -39,7 +50,7 @@ def nms(boxes, scores, thresh=.5) -> torch.Tensor:
     return indices[vals]
 
 
-@torch.compile(dynamic=True, disable=WINDOWS)
+@torch_compile(dynamic=True)
 def get_iou_voting(boxes: Tensor, thresh: float):
     iou = bx.box_iou(boxes, boxes)
     iou *= iou > thresh  # consistent with nms thresh
