@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.10-buster
+FROM nvcr.io/nvidia/pytorch:23.10-py3
 
 WORKDIR /app
 
@@ -19,8 +19,8 @@ COPY ./scripts/*.py ./
 
 RUN pip3 install .
 RUN pip3 install psutil
+RUN pip3 install imagecodecs
 
 RUN mkdir /inputs
 RUN mkdir /outputs
 RUN mkdir /models
-
