@@ -19,7 +19,7 @@ from os.path import isfile
 from torchvision.ops.boxes import remove_small_boxes, nms
 from torch.optim.lr_scheduler import SequentialLR
 from ..optim.lr_scheduler import WarmUp
-from ..util.util import GpuStats
+from ..util.util import GpuStats, to_device, dict2model, model2dict
 
 STEP_OUTPUT = Union[Tensor, Dict[str, Any]]
 EPOCH_OUTPUT = List[STEP_OUTPUT]
@@ -42,6 +42,10 @@ class LitCpn(pl.LightningModule):
         self.save_hyperparameters()
         if isinstance(model, str):
             model = self.build_model(model, **kwargs)
+            if kwargs.pop('resolve_model_hparam', True):
+                self.hparams['model'] = model2dict(model)
+        elif isinstance(model, dict):
+            model = dict2model(model)
         self.model = model
         self.inputs_key = 'inputs'
         self.targets_key = 'targets'
@@ -114,6 +118,18 @@ class LitCpn(pl.LightningModule):
             optimizer = conf2optimizer(optimizer, filter(lambda p: p.requires_grad, self.parameters()))
         else:
             optimizer = self._optimizer
+
+        if self._lr_multiplier is not None:
+            for gr in optimizer.param_groups:
+                print('Update learning rate from', gr['lr'], end='')
+                gr['lr'] *= self._lr_multiplier
+                print('to', gr['lr'], flush=True)
+        if self._weight_decay_multiplier is not None:
+            for gr in optimizer.param_groups:
+                if 'weight_decay' in gr:
+                    print('Update learning rate from', gr['weight_decay'], end='')
+                    gr['weight_decay'] *= self._weight_decay_multiplier
+                    print('to', gr['weight_decay'], flush=True)
 
         if self._scheduler is None:
             return optimizer
@@ -280,10 +296,11 @@ class LitCpn(pl.LightningModule):
             self,
             inputs: Tensor,
             targets: Optional[Dict[str, Tensor]] = None,
-            max_imsize: Optional[int] = 2048,
+            max_imsize: Optional[int] = None,
             **kwargs
     ) -> Dict[str, Union[Tensor, List[Tensor]]]:
-        if max_imsize is not None and max(inputs.shape[2:]) > max_imsize:
+        max_imsize = self.max_imsize if max_imsize is None else max_imsize
+        if max_imsize and max(inputs.shape[2:]) > max_imsize:
             return self.forward_tiled(inputs, targets=targets, **kwargs)
 
         device = self.device
@@ -295,8 +312,8 @@ class LitCpn(pl.LightningModule):
     def forward_tiled(
             self,
             inputs: Tensor,
-            crop_size: Union[int, Sequence[int]] = 512,
-            stride: Union[int, Sequence[int]] = 256,
+            crop_size: Union[int, Sequence[int]] = 768,
+            stride: Union[int, Sequence[int]] = 384,
             **kwargs
     ) -> Dict[str, List[Tensor]]:
         assert np.array(crop_size) <= np.array(stride) * 2
@@ -307,7 +324,7 @@ class LitCpn(pl.LightningModule):
         device = self.device
         extra_keys = kwargs.get('extra_keys', ())  # extra output keys
         extra_nms = kwargs.get('extra_nms', {})  # specify which extra outputs need to be filtered by nms
-        border_removal = kwargs.get('border_removal', 8)
+        border_removal = kwargs.get('border_removal', 6)
         box_min_size = kwargs.get('min_box_size', 1.)
         nms_thresh = kwargs.get('nms_thresh', self.model.__dict__.get('nms_thresh', None))
         inputs_mask = kwargs.get('inputs_mask')
@@ -318,7 +335,7 @@ class LitCpn(pl.LightningModule):
                 crop_m = inputs_mask[(...,) + tuple(slices_)].to(device)
                 if not torch.any(crop_m):
                     continue  # skip masked out tile
-            outputs = self.forward(crop, targets=kwargs.get('targets'), max_imsize=None)
+            outputs = self.forward(crop, targets=kwargs.get('targets'), max_imsize=False)
             h_i, w_i = np.unravel_index(i, slices_by_dim)
             h_start, w_start = [s.start for s in slices_]
 
