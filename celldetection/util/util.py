@@ -9,7 +9,7 @@ from torch.hub import load_state_dict_from_url
 import hashlib
 import json
 from tqdm import tqdm
-from os.path import join, isfile
+from os.path import join, isfile, splitext
 from os import makedirs
 import pynvml as nv
 from cv2 import getGaussianKernel
@@ -20,6 +20,9 @@ import sys
 from itertools import product
 from inspect import currentframe
 from shutil import copy2
+from PIL import Image
+from io import BytesIO
+from base64 import b64encode, b64decode
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'asnumpy', 'fetch_model',
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
@@ -30,7 +33,8 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'ensure_num_tuple', 'get_nd_conv', 'get_nd_linear', 'get_nd_dropout', 'get_nd_max_pool', 'get_nd_batchnorm',
            'get_warmup_factor', 'print_to_file', 'NormProxy', 'num_bytes', 'from_h5', 'update_dict_',
            'get_tiling_slices', 'get_nn', 'copy_script', 'hash_file', 'append_hash_to_filename', 'save_fetchable_model',
-           'load_model', 'freeze_', 'unfreeze_', 'freeze_submodules_', 'unfreeze_submodules_']
+           'load_model', 'freeze_', 'unfreeze_', 'freeze_submodules_', 'unfreeze_submodules_',
+           'image_to_base64', 'base64_to_image', 'model2dict', 'dict2model']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
@@ -347,19 +351,25 @@ def asnumpy(v):
         raise ValueError(f'Type not supported: {type(v)}')
 
 
+def dict2model(conf, **kwargs):
+    from .. import models
+
+    kw = {**conf.get('kwargs', conf.get('kw', {})), **kwargs}
+    m = getattr(models, conf['model'])(*conf.get('args', conf.get('a', ())), **kw)
+    return m
+
+
 def _load_cd_format(m, **kwargs):
     assert isinstance(m, dict) and 'cd.models' in m.keys()
     state_dict = m['state_dict']
-    from .. import models
     conf = m['cd.models']
-    kw = {**conf.get('kwargs', conf.get('kw', {})), **kwargs}
-    m = getattr(models, conf['model'])(*conf.get('args', conf.get('a', ())), **kw)
+    m = dict2model(conf, **kwargs)
     m.load_state_dict(state_dict)
     return m
 
 
 def load_model(filename, map_location=None, **kwargs):
-    assert isfile(filename)
+    assert isfile(filename), f'Could not find file: {filename}'
     m = torch.load(filename, map_location=map_location, **kwargs.pop('load_kwargs', {}))
     if isinstance(m, dict) and 'cd.models' in m.keys():
         return _load_cd_format(m, **kwargs)
@@ -377,8 +387,18 @@ def fetch_model(name, map_location=None, **kwargs):
         **kwargs: From the doc of `torch.models.utils.load_state_dict_from_url`.
 
     """
-    url = name if name.startswith('http') else f'https://celldetection.org/torch/models/{name}.pt'
-    m = load_state_dict_from_url(url, map_location=map_location, **kwargs.pop('load_state_dict_kwargs', {}))
+    load_state_dict_kwargs = kwargs.pop('load_state_dict_kwargs', {})
+    if name.startswith('cd://'):
+        name = name[len('cd://'):]
+    if not name.startswith('http'):
+        if splitext(name)[1] not in ('.pt', '.pth', 'ckpt'):
+            name = name + '.pt'
+        url = f'https://celldetection.org/torch/models/{name}'
+        load_state_dict_kwargs['check_hash'] = load_state_dict_kwargs.get('check_hash', True)
+    else:
+        url = name
+    # url = name if name.startswith('http') else f'https://celldetection.org/torch/models/{name}.pt'
+    m = load_state_dict_from_url(url, map_location=map_location, **load_state_dict_kwargs)
     if isinstance(m, dict) and 'cd.models' in m.keys():
         m = _load_cd_format(m, **kwargs)
     return m
@@ -407,16 +427,20 @@ def append_hash_to_filename(filename, num=None, ext=True):
     rename(filename, dst)
 
 
+def model2dict(model: 'nn.Module'):
+    return dict(
+        model=model.__class__.__name__,
+        kwargs=model.hparams,
+    )
+
+
 def save_fetchable_model(model: 'nn.Module', filename, append_hash=16):
+    if not len(splitext(filename)[1]):
+        filename += '.pt'
     model.eval()
     model = model.to('cpu')
-    kwargs = model.hparams
-    name = model.__class__.__name__
     torch.save({
-        'cd.models': dict(
-            model=name,
-            kwargs=kwargs,
-        ),
+        'cd.models': model2dict(model),
         'state_dict': model.state_dict(),
     }, filename)
     if append_hash:
@@ -1145,7 +1169,7 @@ def from_h5(filename, *keys, **keys_slices):
         Data from hdf5 file. As tuple if multiple keys are provided.
     """
     with h5py.File(filename, 'r') as h:
-        if len(keys) == 0:
+        if len(keys) == 0 and len(keys_slices) == 0:
             print('Available keys:', list(h.keys()), flush=True)
         res = tuple(h[k][:] for k in keys) + tuple(h[k][v] for k, v in keys_slices.items())
     if len(res) == 1:
@@ -1373,3 +1397,23 @@ def unfreeze_submodules_(module: "nn.Module", *names, recurse=True):
         names, = names
     for n in names:
         unfreeze_(module.get_submodule(n), recurse=recurse)
+
+
+def image_to_base64(img: 'np.ndarray', ext='png', as_url=True, url_template=None):
+    pi = Image.fromarray(img)
+    buff = BytesIO()
+    pi.save(buff, format='png')
+    code = b64encode(buff.getvalue()).decode('utf-8')
+    if as_url:
+        if url_template is None:
+            url_template = 'data:image/{ext};base64,{code}'
+        return url_template.format(ext=ext, code=code)
+    return code
+
+
+def base64_to_image(code, as_numpy=True):
+    base64_decoded = b64decode(code)
+    img = Image.open(BytesIO(base64_decoded))
+    if as_numpy:
+        return np.array(img)
+    return img
