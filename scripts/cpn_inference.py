@@ -1,7 +1,8 @@
 import argparse
 import torch
+import torch.nn as nn
 from glob import glob
-from os.path import isfile, isdir, join, basename, splitext
+from os.path import isfile, isdir, join, basename, splitext, sep
 from os import makedirs
 import celldetection as cd
 import pytorch_lightning as pl
@@ -12,6 +13,8 @@ from PIL import ImageFile
 import cv2
 from torch.distributed import is_available, all_gather_object, get_world_size, is_initialized, get_rank
 from itertools import chain
+import albumentations.augmentations.functional as F
+from warnings import warn
 
 
 def dict_collate_fn(batch, check_padding=True, img_min_ndim=2) -> OrderedDict:
@@ -134,9 +137,26 @@ def concat_results_flat_(coll, new):
         coll[k] = torch.cat((coll.get(k, v[:0]), v))
 
 
+def preprocess(img, gamma=1., contrast=1., brightness=0., percentile=None):
+    # TODO: Add more options
+    if percentile is not None:
+        img = cd.data.normalize_percentile(img, percentile)
+    if img.itemsize > 1:
+        warn('Performing implicit percentile normalization, since input is not uint8.')
+        img = cd.data.normalize_percentile(img)
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+
+    if gamma != 1.:
+        img = F.gamma_transform(img, gamma)
+    if contrast != 1.:
+        img = F.brightness_contrast_adjust(img, alpha=contrast, beta=brightness)
+    return img
+
+
 def apply_model(img, models, trainer, crop_size=(768, 768), strides=(384, 384), reps=1, transforms=None,
                 batch_size=1, num_workers=0, pin_memory=False, border_removal=6, min_vote=1, stitching_rule='nms',
-                **kwargs):
+                gamma=1., contrast=1., brightness=0., percentile=None, model_parameters=None, **kwargs):
     assert len(models) >= 1, 'Please specify at least one model.'
     assert min_vote >= 1, f'Min vote smaller than minimum: {min_vote}'
     assert len(models) >= min_vote, f'Min vote greater than number of models: {min_vote}'
@@ -150,11 +170,7 @@ def apply_model(img, models, trainer, crop_size=(768, 768), strides=(384, 384), 
     elif len(strides) == 1:
         strides *= 2
     mask = None
-    # TODO: Add more options
-    if img.itemsize > 1:
-        img = cd.data.normalize_percentile(img)
-    if img.ndim == 2:
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    img = preprocess(img, gamma=gamma, contrast=contrast, brightness=brightness, percentile=percentile)
     x = img.astype('float32') / 255
 
     tile_loader = TileLoader(x, mask=mask, crop_size=crop_size, strides=strides, reps=reps, transforms=transforms)
@@ -173,13 +189,29 @@ def apply_model(img, models, trainer, crop_size=(768, 768), strides=(384, 384), 
     h_tiles, w_tiles = tile_loader.num_slices_per_axis
     nms_thresh = None
     for model_name in models:
-        if model_name.endswith('.ckpt'):
-            model = cd.models.LitCpn.load_from_checkpoint(model_name, map_location='cpu')
+        if isinstance(model_name, nn.Module):
+            model = model_name
+        elif callable(model_name):
+            model = model_name(map_location='cpu')
         else:
-            model = cd.load_model(model_name, map_location='cpu')
+            if model_name.endswith('.ckpt'):
+                model = cd.models.LitCpn.load_from_checkpoint(model_name, map_location='cpu')
+            else:
+                model = cd.load_model(model_name, map_location='cpu')
+        if not isinstance(model, cd.models.LitCpn):
+            print('Wrap model with lightning', end='')
+            model = cd.models.LitCpn(model)
+        model.model.max_imsize = None
         model.eval()
         model.requires_grad_(False)
         nms_thresh = kwargs.get('nms_thresh', model.model.nms_thresh)
+        if model_parameters is not None:
+            for k, v in model_parameters.items():
+                if hasattr(model.model, k):
+                    setattr(model.model, k, type(getattr(model.model, k))(v))
+                else:
+                    warn(f'Could not find attribute {k} in model {model_name}. '
+                         f'Hence, the setting was not changed!')
 
         y = trainer.predict(model, data_loader)
 
@@ -247,15 +279,14 @@ def apply_model(img, models, trainer, crop_size=(768, 768), strides=(384, 384), 
 
 def main():
     parser = argparse.ArgumentParser('Contour Proposal Networks for Instance Segmentation')
-    parser.add_argument('-i', '--inputs', default='/inputs', type=str,
-                        help='inputs path or filename')
+    parser.add_argument('-i', '--inputs', default='/inputs/*.*', nargs='+', type=str,
+                        help='Inputs. Either filename, name pattern (glob), or URL (leading http:// or https://).')
     parser.add_argument('-o', '--outputs', default='/outputs', type=str, help='output path')
-    parser.add_argument('--inputs_glob', default='*.*', type=str, help='Should `inputs` specify a directory, this'
-                                                                       'can be used to filter for specific files '
-                                                                       'in that directory.')
-    parser.add_argument('--inputs_method', default='imageio', help='Method used for loading non-hdf5 inputs.')
+    parser.add_argument('--inputs_method', default='imageio',
+                        help='Method used for loading non-hdf5 inputs.')
     parser.add_argument('--inputs_dataset', default=None, help='Dataset name for hdf5 inputs.')
-    parser.add_argument('-m', '--models', default='/models', help='Model directory or filename.')
+    parser.add_argument('-m', '--models', default='/models/*.*', nargs='+',
+                        help='Model. Either filename, name pattern (glob), or hosted model name.')
     parser.add_argument('--devices', default='auto', type=str, help='Devices.')
     parser.add_argument('--accelerator', default='auto', type=str, help='Accelerator.')
     parser.add_argument('--strategy', default='auto', type=str, help='Strategy.')
@@ -264,49 +295,82 @@ def main():
     parser.add_argument('--num_workers', default=0, type=int, help='Number of workers.')
     parser.add_argument('--prefetch_factor', default=2, type=int,
                         help='Number of batches loaded in advance by each worker.')
-    parser.add_argument('--pin_memory', nargs='*', help='If set, the data loader will copy Tensors into device/CUDA '
-                                                        'pinned memory before returning them.')
+    parser.add_argument('--pin_memory', nargs='*',
+                        help='If set, the data loader will copy Tensors into device/CUDA '
+                             'pinned memory before returning them.')
     parser.add_argument('--batch_size', default=1, type=int, help='How many samples per batch to load.')
     parser.add_argument('--tile_size', default=1024, nargs='+', type=int,
                         help='Tile/window size for sliding window processing.')
-    parser.add_argument('--stride', default=768, nargs='+', type=int, help='Stride for sliding window processing.')
-    parser.add_argument('--border_removal', default=4, type=int, help='Number of border pixels for the removal of '
-                                                                      'partial objects during tiled inference.')
-    parser.add_argument('--stitching_rule', default='nms', type=str, help='Stitching rule to use for collating results '
-                                                                          'from sliding window processing.')
+    parser.add_argument('--stride', default=768, nargs='+', type=int,
+                        help='Stride for sliding window processing.')
+    parser.add_argument('--border_removal', default=4, type=int,
+                        help='Number of border pixels for the removal of '
+                             'partial objects during tiled inference.')
+    parser.add_argument('--stitching_rule', default='nms', type=str,
+                        help='Stitching rule to use for collating results from sliding window processing.')
     parser.add_argument('--min_vote', default=1, type=int,
                         help='Required smallest vote count for a detected object to be accepted. '
                              'Only used for ensembles. Minimum vote count is 1, maximum the number of '
                              'models that are part of the ensemble.')
     parser.add_argument('--labels', action='store_true', help='Whether to convert contours to label image.')
-    parser.add_argument('--flat_labels', action='store_true', help='Whether to use labels without channels.')
-    parser.add_argument('--demo_figure', action='store_true', help='Whether to write a demo figure to disk. '
-                                                                   'Note: Intended for smaller images!')
-    parser.add_argument('--truncated_images', action='store_true', help='Whether to support truncated images.')
+    parser.add_argument('--flat_labels', action='store_true',
+                        help='Whether to use labels without channels.')
+    parser.add_argument('--demo_figure', action='store_true',
+                        help='Whether to write a demo figure to disk. Note: Intended for smaller images!')
+    parser.add_argument('--truncated_images', action='store_true',
+                        help='Whether to support truncated images.')
     parser.add_argument('-p', '--properties', nargs='*', help='Region properties')
-    parser.add_argument('--spacing', default=1., type=float, help='The pixel spacing. Relevant for pixel-based '
-                                                                  'region properties.')
+    parser.add_argument('--spacing', default=1., type=float,
+                        help='The pixel spacing. Relevant for pixel-based region properties.')
     parser.add_argument('--separator', default='-', type=str,
                         help='Separator string for region properties that are written to multiple columns. '
                              'Default is "-" as in bbox-0, bbox-1, bbox-2, bbox-4.')
+
+    parser.add_argument('--gamma', default=1., type=float, help='Gamma value for gamma transform.')
+    parser.add_argument('--contrast', default=1., type=float, help='Factor for contrast adjustment.')
+    parser.add_argument('--brightness', default=0., type=float, help='Factor for brightness adjustment.')
+    parser.add_argument('--percentile', default=None, nargs='+', type=float,
+                        help='Percentile norm. Performs min-max normalization with specified percentiles.'
+                             'Specify either two values `(min, max)` or just `max` interpreted as '
+                             '(1 - max, max).')
+    parser.add_argument('--model_parameters', default='', type=str,
+                        help='Model parameters. Pass as string in "key=value,key1=value1" format')
+
     args, unknown = parser.parse_known_args()
 
     if args.truncated_images:
         ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-    if isdir(args.inputs):
-        inputs = sorted(glob(join(args.inputs, args.inputs_glob)))
-    elif isfile(args.inputs):
-        inputs = [args.inputs]
-    else:
-        raise ValueError(args.inputs)
-
     outputs = args.outputs
     makedirs(outputs, exist_ok=True)
-    if isdir(args.models):
-        models = sorted(glob(join(args.models, '*.pt'))) + sorted(glob(join(args.models, '*.ckpt')))
-    else:
-        models = sorted(glob(args.models))
+
+    # Prepare input args
+    inputs = []
+    for i in args.inputs:
+        if i.startswith('http://') or i.startswith('https://') or isfile(i):
+            inputs.append(i)
+        else:
+            files = sorted(glob(i))
+            assert len(files), f'Could not find inputs: {i}'
+            inputs += files
+
+    # Prepare model args
+    models = []
+    for m in args.models:
+        if m.startswith('http://') or m.startswith('https://') or m.startswith('cd://'):
+            models.append(lambda _m=m, **kwargs: cd.fetch_model(_m, **kwargs))
+        else:
+            files = sorted(glob(m))
+            if len(files) == 0 and sep not in m and '.' not in m:
+                files = [lambda _m=m, **kwargs: cd.fetch_model(_m, **kwargs)]  # fallback: try cd-hosted
+            assert len(files), f'Could not find models: {m}'
+            models += files
+
+    # Prepare model parameters
+    model_parameters = [i.strip().split('=') for i in args.model_parameters.split(',') if len(i.strip())]
+    model_parameters = {k: v for k, v in model_parameters}
+    if model_parameters is not None and len(model_parameters):
+        print('Changing the following model parameters:', model_parameters)
 
     devices = args.devices
     if devices.isnumeric():
@@ -333,8 +397,11 @@ def main():
         prefix, ext = splitext(basename(src))
         dst = join(outputs, prefix + '{ext}')
         print(src, '-->', dst.format(ext='.*'), flush=True)
-        if ext in ('.h5', '.hdf5'):
-            assert args.inputs_dataset is not None, 'Please specify the dataset name for hdf5 inputs via --dataset <name>'
+        if src.startswith('http://') or src.startswith('https://'):
+            img = cd.fetch_image(src)
+        elif ext in ('.h5', '.hdf5'):
+            assert args.inputs_dataset is not None, ('Please specify the dataset name for hdf5 inputs via '
+                                                     '--dataset <name>')
             print('Read from h5:', args.inputs_dataset)
             img = cd.from_h5(src, args.inputs_dataset)
         else:
@@ -348,7 +415,12 @@ def main():
             prefetch_factor=args.prefetch_factor,
             border_removal=args.border_removal,
             min_vote=args.min_vote,
-            stitching_rule=args.stitching_rule
+            stitching_rule=args.stitching_rule,
+            gamma=args.gamma,
+            contrast=args.contrast,
+            brightness=args.brightness,
+            percentile=args.percentile,
+            model_parameters=model_parameters
         ))
         is_dist = is_available() and is_initialized()
         if (is_dist and get_rank() == 0) or not is_dist:
