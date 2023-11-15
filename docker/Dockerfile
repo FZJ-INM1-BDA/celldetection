@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1
 
-FROM nvcr.io/nvidia/pytorch:23.10-py3
+FROM python:3.10-buster
 
 WORKDIR /app
 
 RUN pip install --upgrade pip
 RUN pip install safetensors==0.2.8
 
-RUN apt-get update && apt-get install libgl1 -y
+RUN apt-get update && apt-get install libgl1 mpich -y
+RUN pip install mpi4py
 
 COPY ./celldetection ./celldetection
 COPY ./setup.py ./
