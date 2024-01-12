@@ -5,7 +5,7 @@ from typing import Optional, Union, List, Type, Dict
 from torch import Tensor
 from torch.nn import functional as F
 from functools import partial
-from ..util.util import lookup_nn
+from ..util.util import lookup_nn, dict2model
 from .unet import UNet, IntermediateUNetBlock
 from .commons import ConvNormRelu, SqueezeExcitation as SE, _ni_3d
 from .smp import SmpEncoder
@@ -114,7 +114,7 @@ class MultiscaleFusionAttention(nn.Module):
 
 
 class MaNet(UNet):
-    def __init__(self, backbone, out_channels: int, pab_channels=64,
+    def __init__(self, backbone, out_channels: int = 0, pab_channels=64,
                  block: Type[nn.Module] = None, block_kwargs: dict = None, final_activation=None,
                  interpolate='nearest', nd=2, **kwargs):
         """Multi-Scale Attention Network.
@@ -136,6 +136,9 @@ class MaNet(UNet):
             nd: Spatial dimensions.
             **kwargs: Additional keyword arguments.
         """
+        if isinstance(backbone, dict):
+            backbone = dict2model(backbone)
+
         oc = backbone.out_channels
         intermediate_blocks = None
         if pab_channels:
