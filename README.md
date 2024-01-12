@@ -414,5 +414,5 @@ If you find this work useful, please consider giving a **star** ⭐️ and **cit
 
 ## 🧑‍🔬 Thanks!
 
-[![Stargazers repo roster for @FZJ-INM1-BDA/celldetection](https://reporoster.com/stars/FZJ-INM1-BDA/celldetection)](https://github.com/FZJ-INM1-BDA/celldetection/stargazers)
-[![Forkers repo roster for @FZJ-INM1-BDA/celldetection](https://reporoster.com/forks/FZJ-INM1-BDA/celldetection)](https://github.com/FZJ-INM1-BDA/celldetection/network/members)
+[![Stargazers repo roster for @FZJ-INM1-BDA/celldetection](http://reporoster.com/stars/FZJ-INM1-BDA/celldetection)](https://github.com/FZJ-INM1-BDA/celldetection/stargazers)
+[![Forkers repo roster for @FZJ-INM1-BDA/celldetection](http://reporoster.com/forks/FZJ-INM1-BDA/celldetection)](https://github.com/FZJ-INM1-BDA/celldetection/network/members)
