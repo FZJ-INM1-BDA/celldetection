@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import List
 
 __all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially', 'minibatch_std_layer', 'strided_upsampling2d',
-           'interpolate_vector', 'pad_to_div', 'pad_to_size']
+           'interpolate_vector', 'pad_to_div', 'pad_to_size', 'spatial_mean']
 
 
 def downsample_labels(inputs, size: List[int]):
@@ -187,3 +187,8 @@ def pad_to_div(v, div=32, nd=2, return_pad=False, **kwargs):
         div = (div,) * nd
     size = [(i // d + bool(i % d)) * d for i, d in zip(v.shape[-len(div):], div)]
     return pad_to_size(v, size, return_pad=return_pad, **kwargs)
+
+
+def spatial_mean(x, keepdim=False):
+    spatial = tuple(range(2, x.ndim))
+    return torch.mean(x, spatial, keepdim=keepdim)
