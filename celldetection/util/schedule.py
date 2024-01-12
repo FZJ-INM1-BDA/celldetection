@@ -8,6 +8,8 @@ from torch import optim
 import inspect
 from typing import Callable, Union
 import albumentations as A
+from os.path import splitext
+import yaml
 
 __all__ = ['Config', 'Schedule', 'conf2optimizer', 'conf2scheduler', 'conf2augmentation', 'conf2tweaks_', 'conf2call']
 
@@ -173,20 +175,37 @@ class Config(Dict):
     @staticmethod
     def from_json(filename):
         c = Config()
-        c.load(filename)
+        c.load(filename, backend='json')
         return c
 
-    def load(self, filename):
-        with open(filename, 'r') as fp:
-            config = json.load(fp)
-        self.update(config)
+    @staticmethod
+    def from_yaml(filename):
+        c = Config()
+        c.load(filename, backend='yaml')
+        return c
+
+    def load(self, filename, backend=None):
+        ext = splitext(filename)[1]
+        if backend == 'yaml' or ext in ('.yml', '.yaml'):
+            with open(filename, 'r') as fp:
+                config = yaml.safe_load(fp)
+        else:
+            with open(filename, 'r') as fp:
+                config = json.load(fp)
+        if config is not None:
+            self.update(config)
 
     def to_dict(self) -> dict:
-        return {k: v for k, v in dict(self).items() if not k.startswith('_')}
+        return {k: (v.to_dict() if isinstance(v, Config) else v) for k, v in dict(self).items() if
+                not k.startswith('_')}
 
     def to_json(self, filename):
         with open(filename, 'w') as fp:
             json.dump(self.to_dict(), fp)
+
+    def to_yaml(self, filename):  # cannot preserve types
+        with open(filename, 'w') as fp:
+            yaml.safe_dump(self.to_dict(), fp)
 
     def to_txt(self, filename, mode='w', **kwargs):
         print_to_file(self, filename=filename, mode=mode, **kwargs)
@@ -201,8 +220,12 @@ class Config(Dict):
         return ''
 
     def __repr__(self):
+        if '_modules' in self:
+            return str(self.to_dict())
         self._modules = self.to_dict()
-        return Module.__repr__(self)
+        r = Module.__repr__(self)
+        del self._modules
+        return r
 
     def args(self, fn: Callable):
         """
@@ -448,15 +471,30 @@ class Schedule:
         with open(filename, 'w') as fp:
             json.dump(self.values, fp)
 
+    def to_yaml(self, filename):  # cannot preserve types
+        with open(filename, 'w') as fp:
+            yaml.safe_dump(self.to_dict(), fp)
+
     @staticmethod
     def from_json(filename):
         c = Schedule()
-        c.load(filename)
+        c.load(filename, backend='json')
         return c
 
-    def load(self, filename):
-        with open(filename, 'r') as fp:
-            self.values = json.load(fp)
+    @staticmethod
+    def from_yaml(filename):
+        c = Schedule()
+        c.load(filename, backend='yaml')
+        return c
+
+    def load(self, filename, backend=None):
+        ext = splitext(filename)[1]
+        if backend == 'yaml' or ext in ('.yml', '.yaml'):
+            with open(filename, 'r') as fp:
+                self.values = yaml.safe_load(fp)
+        else:
+            with open(filename, 'r') as fp:
+                self.values = json.load(fp)
 
     def to_dict(self):
         return dict(self.values)
