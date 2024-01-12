@@ -241,7 +241,7 @@ class ResNet(nn.Sequential):
                                  'Please specify a URL using the `pretrained` argument.')
         if pyramid_pooling:
             pyramid_pooling_kwargs = {} if pyramid_pooling_kwargs is None else pyramid_pooling_kwargs
-            append_pyramid_pooling_(self, pyramid_pooling_channels, **pyramid_pooling_kwargs)
+            append_pyramid_pooling_(self, pyramid_pooling_channels, nd=nd, **pyramid_pooling_kwargs)
 
 
 class VanillaResNet(ResNet):
