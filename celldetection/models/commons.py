@@ -4,9 +4,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor, tanh, sigmoid
 from torchvision import transforms as trans
+from torch.nn.common_types import _size_2_t
 from ..util.util import lookup_nn, tensor_to, ensure_num_tuple, get_nd_conv
 from ..ops.commons import split_spatially, minibatch_std_layer
-from typing import Type
+from typing import Type, Union
 from functools import partial
 
 __all__ = []
@@ -430,6 +431,7 @@ class ReadOut(nn.Module):
             channels_mid=None,
             stride=1,
             nd=2,
+            attention=None,
     ):
         super().__init__()
         Conv = get_nd_conv(nd)
@@ -438,6 +440,15 @@ class ReadOut(nn.Module):
         self.channels_out = channels_out
         if channels_mid is None:
             channels_mid = channels_in
+
+        self.attention = None
+        if attention is not None:
+            if isinstance(attention, dict):
+                attention_kwargs, = list(attention.values())
+                attention, = list(attention.keys())
+            else:
+                attention_kwargs = {}
+            self.attention = lookup_nn(attention, nd=nd, call=False)(channels_in, **attention_kwargs)
 
         self.block = nn.Sequential(
             Conv(channels_in, channels_mid, kernel_size, padding=padding, stride=stride),
@@ -453,6 +464,8 @@ class ReadOut(nn.Module):
             self.activation = lookup_nn(final_activation)
 
     def forward(self, x):
+        if self.attention is not None:
+            x = self.attention(x)
         out = self.block(x)
         return self.activation(out)
 
@@ -545,14 +558,14 @@ class _AdditiveNoise(nn.Module):
 
 @register
 class AdditiveNoise2d(_AdditiveNoise):
-    def __init__(self, in_channels, noise_channels=1, weighted=True):
-        super().__init__(in_channels=in_channels, noise_channels=noise_channels, weighted=weighted, nd=2)
+    def __init__(self, in_channels, noise_channels=1, weighted=True, **kwargs):
+        super().__init__(in_channels=in_channels, noise_channels=noise_channels, weighted=weighted, nd=2, **kwargs)
 
 
 @register
 class AdditiveNoise3d(_AdditiveNoise):
-    def __init__(self, in_channels, noise_channels=1, weighted=True):
-        super().__init__(in_channels=in_channels, noise_channels=noise_channels, weighted=weighted, nd=3)
+    def __init__(self, in_channels, noise_channels=1, weighted=True, **kwargs):
+        super().__init__(in_channels=in_channels, noise_channels=noise_channels, weighted=weighted, nd=3, **kwargs)
 
 
 class _Stride(nn.Module):
@@ -676,6 +689,50 @@ class SqueezeExcitation(nn.Sequential):
         if self.residual:
             return inputs + scaled
         return scaled
+
+
+@register
+class SelfAttention(nn.Module):
+    def __init__(self, in_channels, out_channels=None, mid_channels=None, kernel_size=1, padding=0, beta=True, nd=2):
+        """Self-Attention.
+
+        References:
+            - https://arxiv.org/pdf/1805.08318.pdf
+
+        Args:
+            in_channels:
+            out_channels: Equal to `in_channels` by default.
+            mid_channels: Set to `in_channels // 8` by default.
+            kernel_size:
+            padding:
+            beta:
+            nd:
+        """
+        super().__init__()
+        if mid_channels is None:
+            mid_channels = in_channels // 8
+        if out_channels is None:
+            out_channels = in_channels
+        Conv = lookup_nn('Conv2d', nd=nd, call=False)
+        self.beta = nn.Parameter(torch.zeros(1)) if beta else 1.
+        if in_channels != out_channels:
+            self.in_conv = Conv(in_channels, out_channels, kernel_size=3, padding=1)
+        else:
+            self.in_conv = None
+        self.proj_b, self.proj_a = [Conv(out_channels, mid_channels, kernel_size=1) for _ in range(2)]
+        self.proj = Conv(out_channels, out_channels, kernel_size=kernel_size, padding=padding)
+        self.out_conv = Conv(out_channels, out_channels, kernel_size=kernel_size, padding=padding)
+
+    def forward(self, inputs):
+        x = inputs if self.in_conv is None else self.in_conv(inputs)
+        a = self.proj_a(x).flatten(2)
+        b = self.proj_b(x).flatten(2)  # Tensor[n, c', hw]
+        p = torch.matmul(a.permute(0, 2, 1), b)  # Tensor[n, hw, hw]
+        p = F.softmax(p, dim=1)  # Tensor[n, hw, hw]
+        c = self.proj(x).flatten(2)  # Tensor[n, c, hw]
+        out = torch.matmul(p, c.permute(0, 2, 1)).view(*c.shape[:2], *inputs.shape[2:])  # T[n, c, hw] -> T[n, c, h, w]
+        out = self.out_conv(self.beta * out + x)
+        return out
 
 
 def channels_last_permute(nd):
