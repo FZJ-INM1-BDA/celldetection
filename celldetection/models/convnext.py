@@ -8,10 +8,13 @@ from functools import partial
 from torchvision.ops import misc, Permute
 from torchvision.ops.stochastic_depth import StochasticDepth
 from ..util.util import lookup_nn
+from .ppm import append_pyramid_pooling_
 from .commons import LayerNorm1d, LayerNorm2d, LayerNorm3d, channels_last_permute, channels_first_permute
 from torch.hub import load_state_dict_from_url
+from pytorch_lightning.core.mixins import HyperparametersMixin
 
-__all__ = ['ConvNeXtBase', 'ConvNeXtTiny', 'ConvNeXtSmall', 'ConvNeXtLarge', 'ConvNeXt']
+
+__all__ = ['ConvNeXtBase', 'ConvNeXtTiny', 'ConvNeXtSmall', 'ConvNeXtLarge', 'ConvNeXt', 'CNBlock']
 
 default_model_urls = dict(
     ConvNeXtLarge=cnx.ConvNeXt_Large_Weights.IMAGENET1K_V1.url,
@@ -97,7 +100,10 @@ class CNBlock(nn.Module):  # ported from torchvision.models.convnext to support 
             nn.Linear(in_features=4 * out_channels, out_features=out_channels, bias=True),
             Permute(list(channels_first_permute(nd))),
         )
-        self.layer_scale = nn.Parameter(torch.ones(out_channels, *(1,) * nd) * layer_scale)
+        if layer_scale is None:
+            self.layer_scale = 1
+        else:
+            self.layer_scale = nn.Parameter(torch.ones(out_channels, *(1,) * nd) * layer_scale)
         self.stochastic_depth = StochasticDepth(stochastic_depth_prob, "row")
 
     def forward(self, inputs: Tensor) -> Tensor:
@@ -108,7 +114,7 @@ class CNBlock(nn.Module):  # ported from torchvision.models.convnext to support 
         return result
 
 
-class ConvNeXt(nn.Sequential):
+class ConvNeXt(nn.Sequential, HyperparametersMixin):
     def __init__(
             self,
             in_channels: int,
@@ -122,6 +128,9 @@ class ConvNeXt(nn.Sequential):
             pretrained=False,
             fused_initial=True,
             final_layer=None,
+            pyramid_pooling=False,
+            pyramid_pooling_channels=64,
+            pyramid_pooling_kwargs=None,
             nd=2,
     ):
         if not block_setting:
@@ -207,6 +216,9 @@ class ConvNeXt(nn.Sequential):
             else:
                 raise ValueError('There is no default set of weights for this model. '
                                  'Please specify a URL using the `pretrained` argument.')
+        if pyramid_pooling:
+            pyramid_pooling_kwargs = {} if pyramid_pooling_kwargs is None else pyramid_pooling_kwargs
+            append_pyramid_pooling_(self, pyramid_pooling_channels, nd=nd, **pyramid_pooling_kwargs)
 
 
 class ConvNeXtTiny(ConvNeXt):
@@ -234,6 +246,7 @@ class ConvNeXtTiny(ConvNeXt):
             nd: Number of spatial dimensions.
             **kwargs: Additional keyword arguments.
         """
+        self.save_hyperparameters()
         if pretrained is True and nd == 2:
             pretrained = default_model_urls['ConvNeXtTiny']
         super().__init__(
@@ -262,6 +275,7 @@ class ConvNeXtSmall(ConvNeXt):
             nd: int = 2,
             **kwargs
     ):
+        self.save_hyperparameters()
         if pretrained is True and nd == 2:
             pretrained = default_model_urls['ConvNeXtSmall']
         super().__init__(
@@ -304,6 +318,7 @@ class ConvNeXtBase(ConvNeXt):
             nd: Number of spatial dimensions.
             **kwargs: Additional keyword arguments.
         """
+        self.save_hyperparameters()
         if pretrained is True and nd == 2:
             pretrained = default_model_urls['ConvNeXtBase']
         super().__init__(
@@ -346,6 +361,7 @@ class ConvNeXtLarge(ConvNeXt):
             nd: Number of spatial dimensions.
             **kwargs: Additional keyword arguments.
         """
+        self.save_hyperparameters()
         if pretrained is True and nd == 2:
             pretrained = default_model_urls['ConvNeXtLarge']
         super().__init__(
