@@ -40,16 +40,22 @@ def fill_label_gaps_(labels):
         labels[labels == uniques.pop()] = gaps.pop()
 
 
-def fill_padding_(inputs, padding: int, constant=-1):
+def fill_padding_(inputs, padding: int, constant=-1, preserve_existing=True, axes=(0, 1)):
     if padding <= 0:
         return None
     if isinstance(inputs, (list, tuple)):
         [fill_padding_(i, padding, constant) for i in inputs]
         return
-    inputs[:padding] = constant
-    inputs[-padding:] = constant
-    inputs[:, :padding] = constant
-    inputs[:, -padding:] = constant
+    for ax in axes:
+        if ax < 0:
+            ax = ax + inputs.ndim
+        for sl in (slice(0, padding), slice(-padding, None)):  # , (slice(None), slice(0, padding)), (slice(None), slice(-padding, None))
+            sl = (slice(None),) * ax + (sl,)
+            if preserve_existing:
+                mask = ~inputs[sl].any(-1)
+            else:
+                mask = slice(None)
+            inputs[sl][mask] = constant
 
 
 def remove_padding(inputs, padding: int):
