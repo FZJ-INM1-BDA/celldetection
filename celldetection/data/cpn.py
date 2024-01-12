@@ -399,7 +399,7 @@ def _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type):
     return dist
 
 
-def labels2distances(labels, distance_type=cv2.DIST_L2, overlap_zero=True, per_instance=True):
+def labels2distances(labels, distance_type=cv2.DIST_L2, overlap_zero=True, per_instance=True, **kwargs):
     """Label stacks to distances.
 
     Measures distances from pixel to closest border, relative to largest distance.
@@ -431,9 +431,9 @@ def labels2distances(labels, distance_type=cv2.DIST_L2, overlap_zero=True, per_i
 
     # Fg mask
     if per_instance:
-        dist = _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type)
+        dist = _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type, **kwargs)
     else:
-        dist = _labels2distances_fg(labels, fg_mask_wo_overlap, distance_type)
+        dist = _labels2distances_fg(labels, fg_mask_wo_overlap, distance_type, **kwargs)
 
     return dist.clip(0., 1.), labels  # 332 µs ± 24.5 µs for (576, 576)
 
@@ -451,6 +451,7 @@ class CPNTargetGenerator:
         self.flag_fragmented_constant = flag_fragmented_constant
 
         self.labels = None
+        self.labels_red = None
         self.distances = None
         self.partials_mask = None
         self._sampling = self._contours = self._fourier = self._locations = self._sampled_contours = None
@@ -465,7 +466,7 @@ class CPNTargetGenerator:
         self._sampled_contours = None
         self._sampled_sizes = None
 
-    def feed(self, labels, border=1, min_area=1, max_area=None):
+    def feed(self, labels, border=1, min_area=1, max_area=None, **kwargs):
         """
 
         Notes:
@@ -477,6 +478,7 @@ class CPNTargetGenerator:
             min_area:
             max_area:
         """
+        self._reset()
         if labels.ndim == 2:
             labels = labels[..., None]
 
@@ -486,16 +488,14 @@ class CPNTargetGenerator:
         self.labels = labels
         _ = self.contours  # compute contours
 
-        self.distances, labels = labels2distances(labels)
-        mask_labels_by_distance_(labels, self.distances, self.max_bg_dist, self.min_fg_dist)
-
-        self._reset()
+        self.distances, self.labels_red = labels2distances(labels, **kwargs)
+        mask_labels_by_distance_(self.labels_red, self.distances, self.max_bg_dist, self.min_fg_dist)
 
     @property
     def reduced_labels(self):
         if self.flag_fragmented:
             _ = self.contours  # Since labels2contours may filter instances, it has to be done before returning labels
-        return self.labels.max(2)
+        return self.labels_red.max(2)
 
     @property
     def sampling(self):
