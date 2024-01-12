@@ -23,6 +23,7 @@ from shutil import copy2
 from PIL import Image
 from io import BytesIO
 from base64 import b64encode, b64decode
+from glob import glob
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'asnumpy', 'fetch_model',
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
@@ -34,7 +35,9 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'get_warmup_factor', 'print_to_file', 'NormProxy', 'num_bytes', 'from_h5', 'update_dict_',
            'get_tiling_slices', 'get_nn', 'copy_script', 'hash_file', 'append_hash_to_filename', 'save_fetchable_model',
            'load_model', 'freeze_', 'unfreeze_', 'freeze_submodules_', 'unfreeze_submodules_',
-           'image_to_base64', 'base64_to_image', 'model2dict', 'dict2model']
+           'image_to_base64', 'base64_to_image', 'model2dict', 'dict2model', 'is_ipython', 'grouped_glob',
+           'tweak_attribute_', 'to_batched_h5', 'compare_file_hashes', 'import_file', 'load_imagej_rois',
+           'glob_h5_split']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
@@ -354,6 +357,14 @@ def asnumpy(v):
 def dict2model(conf, **kwargs):
     from .. import models
 
+    if len(conf) == 1:  # alternative format: {'class_name': kwargs}
+        key, = conf.keys()
+        if key != 'model':
+            m = getattr(models, key, None)
+            if m is not None:
+                return m(**conf[key])
+
+    # Format: {'model': class_name, 'kwargs': kwargs}
     kw = {**conf.get('kwargs', conf.get('kw', {})), **kwargs}
     m = getattr(models, conf['model'])(*conf.get('args', conf.get('a', ())), **kw)
     return m
@@ -404,14 +415,6 @@ def fetch_model(name, map_location=None, **kwargs):
     return m
 
 
-def hash_file(filename):
-    import hashlib
-
-    with open(filename, 'rb') as f:
-        sha256 = hashlib.sha256(f.read()).hexdigest()
-    return sha256
-
-
 def append_hash_to_filename(filename, num=None, ext=True):
     from os import rename
     prefix = filename
@@ -430,7 +433,7 @@ def append_hash_to_filename(filename, num=None, ext=True):
 def model2dict(model: 'nn.Module'):
     return dict(
         model=model.__class__.__name__,
-        kwargs=model.hparams,
+        kwargs=dict(model.hparams),
     )
 
 
@@ -679,6 +682,27 @@ def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, recursive=
             if must_exist:
                 getattr(mod, k)
             setattr(mod, k, v)
+
+
+def tweak_attribute_(module: nn.Module, require_existence=True, **kwargs):
+    """Tweak attribute.
+
+    Allows to change attributes of a module.
+
+    Args:
+        module: Module.
+        **kwargs: Key value pairs. Keys specify the attribute (e.g. `submodule.attribute_name`) and value
+            the respective new value.
+
+    """
+    for k, v in kwargs.items():
+        x = module
+        sp = k.split('.')
+        for k_ in sp[:-1]:
+            x = getattr(x, k_)
+        if require_existence:
+            assert hasattr(x, sp[-1]), f'Could not find {sp[-1]} attribute in {x}.'
+        setattr(x, sp[-1], v)
 
 
 def replace_module_(module: nn.Module, class_or_tuple, substitute: Union[Type[nn.Module], nn.Module], recursive=True,
@@ -1125,8 +1149,8 @@ def get_tiling_slices(
     return slices, shape
 
 
-def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, create_dataset_kw: dict = None,
-          **kwargs):
+def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, driver=None,
+          create_dataset_kw: dict = None, **kwargs):
     """To hdf5 file.
 
     Write data to hdf5 file.
@@ -1135,27 +1159,88 @@ def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, cr
         filename: File name.
         mode: Mode.
         chunks: Chunks setting for created datasets. Chunk shape, or True to enable auto-chunking.
+            Can be dictionary, if each dataset needs a different chunking.
+            Individual chunks can be integer. Then each dimension is chunked to that integer
+            or the dimension, whichever is smaller.
         compression: Compression setting for created datasets. Legal values are 'gzip', 'szip', 'lzf'. If an integer
             in range(10), this indicates gzip compression level. Otherwise, an integer indicates the number of a
             dynamically loaded compression filter.
-        overwrite: Whether to overwrite existing dataset.
+        overwrite: Whether to overwrite existing dataset. If False, attempt to replace the contents of the existing
+            dataset, without creating a new dataset.
+        driver: Hdf5 driver.
         create_dataset_kw: Additional keyword arguments for ``h5py.File().create_dataset``.
         **kwargs: Data as ``{dataset_name: data}``.
 
     """
     create_dataset_kw = {} if create_dataset_kw is None else create_dataset_kw
-    with h5py.File(filename, mode) as h:
+    with h5py.File(filename, mode, **({} if driver is None else dict(driver=driver))) as h:
         for k, v in kwargs.items():
+            chunks_ = chunks[k] if isinstance(chunks, dict) else chunks
+            if isinstance(chunks_, int) and v.ndim > 1:
+                chunks_ = tuple(np.minimum((256,) * v.ndim, v.shape))
             exists = k in h
             if overwrite and exists:
                 del h[k]
             elif exists:
                 h[k][:] = v
             else:
-                h.create_dataset(k, data=v, compression=compression, chunks=chunks, **create_dataset_kw)
+                h.create_dataset(k, data=v, compression=compression,
+                                 chunks=chunks_,
+                                 **create_dataset_kw)
 
 
-def from_h5(filename, *keys, **keys_slices):
+def to_batched_h5(filename, index, batch_size=256, mode='a', chunks=None, compression=None, overwrite=False,
+                  driver=None, create_dataset_kw: dict = None, file_digits=6, item_digits=6, **kwargs):
+    """To batched hdf5 file.
+
+    Write data to batched hdf5 file.
+    When called for multiple data inputs (with different indices), this function creates possibly multiple hdf5 files,
+    each containing up to `batch_size` items.
+    Each call creates exactly one item (or item group).
+
+    Content is assigned to a `batch_id` and an `item_id`, based on `index` and `batch_size`.
+    The filename is changed from `filename.h5` to `filename_000001.h5`, to include the `batch_id`.
+    Dataset keys are changed from `key` to `key_000001`, to include the `item_id`.
+
+    Args:
+        filename: File name.
+        index: Batch index (int).
+        batch_size: Batch size (int).
+        mode: Mode.
+        chunks: Chunks setting for created datasets. Chunk shape, or True to enable auto-chunking.
+            Can be dictionary, if each dataset needs a different chunking.
+            Individual chunks can be integer. Then each dimension is chunked to that integer
+            or the dimension, whichever is smaller.
+        compression: Compression setting for created datasets. Legal values are 'gzip', 'szip', 'lzf'. If an integer
+            in range(10), this indicates gzip compression level. Otherwise, an integer indicates the number of a
+            dynamically loaded compression filter.
+        overwrite: Whether to overwrite existing dataset. If False, attempt to replace the contents of the existing
+            dataset, without creating a new dataset.
+        driver: Hdf5 driver.
+        create_dataset_kw: Additional keyword arguments for ``h5py.File().create_dataset``.
+        file_digits: Number of digits to display batch index.
+        item_digits: Number of digits to display item index.
+        **kwargs: Data as ``{dataset_name: data}``.
+
+    """
+    batch_id = index // batch_size
+    item_id = index % batch_size
+    pre, ext = splitext(filename)
+    if isinstance(chunks, dict):
+        chunks = {f'{k}_%0{item_digits}d' % item_id: v for k, v in chunks.items()}
+    to_h5(
+        filename=f'{pre}_%0{file_digits}d{ext}' % batch_id,
+        mode=mode,
+        chunks=chunks,
+        compression=compression,
+        overwrite=overwrite,
+        driver=driver,
+        create_dataset_kw=create_dataset_kw,
+        **{f'{k}_%0{item_digits}d' % item_id: v for k, v in kwargs.items()}
+    )
+
+
+def from_h5(filename, *keys, file_kwargs=None, **keys_slices):
     """From h5.
 
     Reads data from hdf5 file.
@@ -1163,12 +1248,13 @@ def from_h5(filename, *keys, **keys_slices):
     Args:
         filename: Filename.
         *keys: Keys to read.
+        file_kwargs: File keyword arguments.
         **keys_slices: Keys with indices or slices. E.g. `from_h5('file.h5', 'key0', key=slice(0, 42))`.
 
     Returns:
         Data from hdf5 file. As tuple if multiple keys are provided.
     """
-    with h5py.File(filename, 'r') as h:
+    with h5py.File(filename, 'r', **(file_kwargs or {})) as h:
         if len(keys) == 0 and len(keys_slices) == 0:
             print('Available keys:', list(h.keys()), flush=True)
         res = tuple(h[k][:] for k in keys) + tuple(h[k][v] for k, v in keys_slices.items())
@@ -1400,6 +1486,19 @@ def unfreeze_submodules_(module: "nn.Module", *names, recurse=True):
 
 
 def image_to_base64(img: 'np.ndarray', ext='png', as_url=True, url_template=None):
+    """Image to base64.
+
+    Converts image to base64 code.
+
+    Args:
+        img: Image as numpy array.
+        ext: Image format.
+        as_url: Whether to format result as URL.
+        url_template: Optional URL template containing `ext` and `code` placeholders.
+
+    Returns:
+        Base64 code.
+    """
     pi = Image.fromarray(img)
     buff = BytesIO()
     pi.save(buff, format='png')
@@ -1412,8 +1511,184 @@ def image_to_base64(img: 'np.ndarray', ext='png', as_url=True, url_template=None
 
 
 def base64_to_image(code, as_numpy=True):
+    """Base64 to image.
+
+    Converts base64 code to image.
+
+    Args:
+        code: Base 64 code.
+        as_numpy: Whether to convert results to numpy instead of `PIL.Image`.
+
+    Returns:
+        Image.
+    """
     base64_decoded = b64decode(code)
     img = Image.open(BytesIO(base64_decoded))
     if as_numpy:
         return np.array(img)
     return img
+
+
+def is_ipython() -> bool:
+    """Is IPython.
+
+    Checks whether function is called via IPython.
+
+    Returns:
+        True/False.
+    """
+    import builtins
+    return getattr(builtins, '__IPYTHON__', False)
+
+
+def grouped_glob(pathname, group_pattern, *, sort=True, keep_unmatched=True, sub_kwargs=None, substitute='', **kwargs):
+    """Grouped glob.
+
+    A glob helper that groups search results by `group_pattern`.
+
+    Args:
+        pathname: Glob pattern.
+        group_pattern: Group pattern for `re.sub`. Matches are substituted with `substitute` for each filename.
+            The resulting string is used as the group handle. All files with the same handle belong to the same group.
+        sort: Whether to sort results.
+        keep_unmatched: Whether to keep files that do not match the `group_pattern`.
+        sub_kwargs: Keyword arguments for `re.sub`.
+        substitute: Substitute for creation of the group handle (see `group_pattern`).
+        **kwargs: Keyword arguments for glob.
+
+    Returns:
+        Dictionary of glob results.
+    """
+    files = glob(pathname, **kwargs)
+    if sort:
+        files = sorted(files)
+
+    grouped = {}
+    for f in files:
+        try:
+            next(re.finditer(group_pattern, f))
+            key = re.sub(group_pattern, substitute, f, **({} if sub_kwargs is None else sub_kwargs))
+        except StopIteration:
+            if keep_unmatched:
+                key = f
+            else:
+                continue
+        grouped[key] = li = grouped.get(key, [])
+        li.append(f)
+    return grouped
+
+
+def hash_file(filename, method='sha256', buffer_size=8192) -> str:
+    """Hash file.
+
+    Computes a hash for the given file.
+
+    Args:
+        filename: Filename.
+        method: Hashing method.
+        buffer_size: Buffer size (file is hashed in chunks).
+
+    Returns:
+        Hash.
+    """
+    import hashlib
+
+    hasher = getattr(hashlib, method)()
+    with open(filename, 'rb') as file:
+        buffer = file.read(buffer_size)
+        while buffer:
+            hasher.update(buffer)
+            buffer = file.read(buffer_size)
+    return hasher.hexdigest()
+
+
+def compare_file_hashes(*filenames, method='sha256') -> bool:
+    """Compare file hashes.
+
+    Computes file hashes for provided files.
+    Returns True if all hashes are equal, False otherwise.
+
+    Args:
+        *filenames: Filenames.
+        method: Hashing method.
+
+    Returns:
+        True/False.
+    """
+    assert len(filenames)
+    if len(filenames) == 1:
+        return True
+    reference_hash = hash_file(filenames[0], method=method)
+    return all(hash_file(f, method=method) == reference_hash for f in filenames[1:])
+
+
+def import_file(filename):
+    """Import Python file.
+
+    Args:
+        filename: Python filename.
+
+    Returns:
+        Loaded module.
+    """
+    from os.path import abspath, basename
+    import importlib
+
+    filename = abspath(filename)
+    name = splitext(basename(filename))[0]
+    spec = importlib.util.spec_from_file_location(name, filename)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def load_imagej_rois(filename, *keys):
+    """Load ImageJ ROIs.
+
+    Args:
+        filename: Filename.
+        *keys: Specific keys to load from the ROIs.
+
+    Returns:
+        (boxes, contours) if no keys provided. (boxes, contours, meta) if keys provided.
+    """
+    try:
+        import roifile as rf
+    except ModuleNotFoundError as e:
+        print('Please install the `roifile` package to use this function: "pip install roifile" '
+              '(https://pypi.org/project/roifile/)')
+        raise e
+
+    rois = rf.ImagejRoi.fromfile(filename)
+    boxes = []
+    contours = []
+    meta = {k: [] for k in keys}
+    for r in rois:
+        y0, y1 = r.top, r.bottom
+        x0, x1 = r.left, r.right
+        contour = r.integer_coordinates + [x0, y0]
+        contours.append(contour)
+        boxes.append([x0, y0, x1, y1])
+
+    res = np.array(boxes), contours
+    if len(meta):
+        return res + (meta,)
+    return res
+
+
+def glob_h5_split(pathname, ext='-r.h5', **kwargs):
+    """Glob for split HDF5 files.
+
+    This is a helper function for finding split h5 files via glob.
+    Filenames are searched with appendix and returned without appendix, as this is what `h5py` expects.
+
+    Args:
+        pathname: Glob pattern.
+        ext: Split h5 appendix.
+        **kwargs: Keyword arguments for glob.
+
+    Returns:
+        Modified glob results. Each filename has its appendix (`ext`) removed.
+    """
+    return [f[:-len(ext)] for f in glob(pathname=pathname if pathname.endswith(ext) else pathname + ext, **kwargs)]
