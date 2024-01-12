@@ -258,9 +258,12 @@ class BackboneAsUNet(nn.Module):
             block = get_nn(block, nd=nd)
         self.nd = nd
         pretrained_cfg = backbone.__dict__.get('pretrained_cfg', {})
-        self.normalize = Normalize(mean=kwargs.get('inputs_mean', pretrained_cfg.get('mean', 0.)),
-                                   std=kwargs.get('inputs_std', pretrained_cfg.get('std', 1.)),
-                                   assert_range=kwargs.get('assert_range', (0., 1.)))
+        if kwargs.pop('normalize', True):
+            self.normalize = Normalize(mean=kwargs.get('inputs_mean', pretrained_cfg.get('mean', 0.)),
+                                       std=kwargs.get('inputs_std', pretrained_cfg.get('std', 1.)),
+                                       assert_range=kwargs.get('assert_range', (0., 1.)))
+        else:
+            self.normalize = None
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers) if ilg else backbone
 
         self.intermediate_blocks = kwargs.get('intermediate_blocks')
@@ -287,7 +290,9 @@ class BackboneAsUNet(nn.Module):
         self.nd = nd
 
     def forward(self, inputs):
-        x = self.normalize(inputs)
+        x = inputs
+        if self.normalize is not None:
+            x = self.normalize(x)
         x = self.body(x)
         if self.intermediate_blocks is not None:
             x = self.intermediate_blocks(x)
