@@ -85,7 +85,8 @@ except (ModuleNotFoundError, ImportError) as e:
     ANY_TAG = -1
     ANY_SOURCE = -2  # may differ depending on MPI implementation
 
-__all__ = ['recv', 'send', 'sink', 'query', 'serve', 'all_filter', 'get_local_comm', 'get_hosts', 'get_comm']
+__all__ = ['recv', 'send', 'sink', 'query', 'serve', 'all_filter', 'get_local_comm', 'get_hosts', 'get_comm', 'has_mpi',
+           'get_num_nodes']
 
 
 def assert_mpi(func):
@@ -100,6 +101,13 @@ def assert_mpi(func):
     return func_wrapper
 
 
+def has_mpi(check_initialized=True):
+    v = bool(MPI)
+    if v and check_initialized:
+        return v and MPI.Is_initialized()
+    return v
+
+
 @assert_mpi
 def get_hosts(comm, return_ranks=False):
     host = MPI.Get_processor_name()
@@ -110,6 +118,13 @@ def get_hosts(comm, return_ranks=False):
         node_ranks = len(list(hosts))
         res += (node_rank, node_ranks)
     return res
+
+
+@assert_mpi
+def get_num_nodes():
+    comm = MPI.COMM_WORLD
+    host, hosts, node_rank, node_ranks = get_hosts(comm, return_ranks=True)
+    return node_ranks
 
 
 if MPI:
