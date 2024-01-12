@@ -18,8 +18,24 @@ def intersection_mask(a, b):
 
 
 def matching_labels(a, b):
-    inter_mask = intersection_mask(a, b)
-    matches = list(chain.from_iterable(map(vec2matches, zip(a[inter_mask], b[inter_mask]))))
+    ac = (a > 0).sum(-1)
+    bc = (b > 0).sum(-1)
+    maximum = max(ac.max(), bc.max())
+    intersect_one = (ac == 1) & (bc == 1)
+    matches = np.stack((a[intersect_one].max(-1), b[intersect_one].max(-1)), 1)
+    if maximum > 1:  # prefilter (may still show no overlap, due to self-overlap)
+        intersect_mul = ((ac > 1) & (bc > 0)) | ((bc > 1) & (ac > 0))
+        a_ = a[intersect_mul]
+        if len(a_):  # actual filter
+            new = np.array(list(chain.from_iterable(map(vec2matches, zip(a_, b[intersect_mul])))))
+            try:
+                matches = np.concatenate((
+                    matches, new
+                ))
+            except Exception as e:
+                print(matches.shape, new.shape, list(chain.from_iterable(map(vec2matches, zip(a_, b[intersect_mul])))),
+                      '\n', e, flush=True)
+                raise e
     matches, counts = np.unique(matches, axis=0, return_counts=True)
     return matches, counts
 
@@ -45,6 +61,39 @@ def labels_exist(func):
     return func_wrapper
 
 
+def _f1_np(v, epsilon=1e-12):
+    tp = v.true_positives
+    fn = v.false_negatives
+    fp = v.false_positives
+    return (2 * tp) / (2 * tp + fn + fp + epsilon)
+
+
+def _jaccard_np(v, epsilon=1e-12):
+    tp = v.true_positives
+    fn = v.false_negatives
+    fp = v.false_positives
+    return tp / (tp + fn + fp + epsilon)
+
+
+def _fowlkes_mallows_np(v, epsilon=1e-12):
+    tp = v.true_positives
+    fn = v.false_negatives
+    fp = v.false_positives
+    return tp / np.sqrt((tp + fp) * (tp + fn) + epsilon)
+
+
+def _precision(v, epsilon=1e-12):
+    tp = v.true_positives
+    fp = v.false_positives
+    return tp / (tp + fp + epsilon)
+
+
+def _recall(v, epsilon=1e-12):
+    tp = v.true_positives
+    fn = v.false_negatives
+    return tp / (tp + fn + epsilon)
+
+
 class LabelMatcher:
     """Evaluation of a label image with a target label image.
 
@@ -54,7 +103,7 @@ class LabelMatcher:
     Each target object can be matched with at most one inferred object and vice versa.
     """
 
-    def __init__(self, inputs=None, targets=None, iou_thresh=None, zero_division='warn'):
+    def __init__(self, inputs=None, targets=None, iou_thresh=None, zero_division='warn', epsilon=1e-12):
         """Initialize LabelMatcher object.
 
         Args:
@@ -72,6 +121,7 @@ class LabelMatcher:
         self.target_labels, self.matches, self.intersections, self.input_counts, self.target_counts = (None,) * 5
         self.zero_division = zero_division if isinstance(zero_division, int) else 0
         self.zero_division_warn = zero_division == 'warn'
+        self.epsilon = epsilon
         if inputs is not None and targets is not None:
             self.update(inputs, targets, iou_thresh)
 
@@ -104,12 +154,9 @@ class LabelMatcher:
             self._sel[index] = iou_pass = iou >= iou_thresh
             if not iou_pass or i + 1 >= len(indices):
                 continue
-            a, b = matches[index]
-            for index_ in indices[i + 1:]:
-                if self._sel[index_]:
-                    u, v = matches[index_]
-                    if a == u or b == v:
-                        self._sel[index_] = False
+            indices_ = indices[i + 1:]
+            mat_match = (matches[index:index + 1] == matches[indices_]).any(-1)
+            self._sel[indices_[mat_match]] = False
 
     @property
     def iou_thresh(self):
@@ -154,7 +201,7 @@ class LabelMatcher:
     @property
     @labels_exist
     def true_positive_labels(self):
-        return set(set(self.matches[:, 0][self._sel])) if len(self.matches) > 0 else set()
+        return set(self.matches[:, 0][self._sel]) if len(self.matches) > 0 else set()
 
     @property
     @labels_exist
@@ -163,26 +210,23 @@ class LabelMatcher:
 
     def _zero_div(self, name):
         if self.zero_division_warn:
-            warn(f'ZeroDivisionError in {name} calculation.')
+            warn(f'ZeroDivisionError in {name} calculation. '
+                 f'Assuming {self.zero_division} as result.')
         return self.zero_division
 
     @property
     @labels_exist
     def precision(self):
-        tp = self.true_positives
-        fp = self.false_positives
         try:
-            return tp / (tp + fp)
+            return _precision(self, epsilon=self.epsilon)
         except ZeroDivisionError:
             return self._zero_div('precision')
 
     @property
     @labels_exist
     def recall(self):
-        tp = self.true_positives
-        fn = self.false_negatives
         try:
-            return tp / (tp + fn)
+            return _recall(self, epsilon=self.epsilon)
         except ZeroDivisionError:
             return self._zero_div('recall')
 
@@ -192,20 +236,25 @@ class LabelMatcher:
         pr = self.precision
         rc = self.recall
         try:
-            return (2 * pr * rc) / (pr + rc)
+            return (2 * pr * rc) / (pr + rc + self.epsilon)
         except ZeroDivisionError:
             return self._zero_div('f1')
 
     @property
     @labels_exist
-    def ap(self):
-        tp = self.true_positives
-        fn = self.false_negatives
-        fp = self.false_positives
+    def jaccard(self):
         try:
-            return tp / (tp + fn + fp)
+            return _jaccard_np(self, epsilon=self.epsilon)
         except ZeroDivisionError:
-            return self._zero_div('ap')
+            return self._zero_div('jaccard')
+
+    @property
+    @labels_exist
+    def fowlkes_mallows(self):
+        try:
+            return _fowlkes_mallows_np(self, epsilon=self.epsilon)
+        except ZeroDivisionError:
+            return self._zero_div('fowlkes_mallows_np')
 
 
 class LabelMatcherList(list):
@@ -229,6 +278,9 @@ class LabelMatcherList(list):
         thresh: 0.75 	 f1: 0.91
 
     """
+    def __init__(self, *args, epsilon=1e-12, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.epsilon = epsilon
 
     @property
     def iou_thresh(self):
@@ -252,10 +304,20 @@ class LabelMatcherList(list):
     def _avg_x(self, x):
         return np.mean([getattr(m, x) for m in self])
 
+    def _sum_x(self, x):
+        return np.sum([getattr(m, x) for m in self])
+
     @property
-    def avg_f1(self):
-        """Average F1 score."""
-        return self._avg_x('f1')
+    def false_positives(self):
+        return self._sum_x('false_positives')
+
+    @property
+    def false_negatives(self):
+        return self._sum_x('false_negatives')
+
+    @property
+    def true_positives(self):
+        return self._sum_x('true_positives')
 
     @property
     def f1(self):
@@ -263,15 +325,46 @@ class LabelMatcherList(list):
         recall = self.avg_recall
         precision = self.avg_precision
         try:
-            return (2 * recall * precision) / (recall + precision)
+            return (2 * recall * precision) / (recall + precision + self.epsilon)
         except ZeroDivisionError:
             warn('ZeroDivisionError in f1 calculation.')
             return 0
 
     @property
-    def avg_ap(self):
-        """Average AP."""
-        return self._avg_x('ap')
+    def f1_np(self):
+        """F1 score from negatives and positives."""
+        try:
+            return _f1_np(self, epsilon=self.epsilon)
+        except ZeroDivisionError:
+            return self._zero_div('f1_np')
+
+    @property
+    def jaccard_np(self):
+        try:
+            return _jaccard_np(self, epsilon=self.epsilon)
+        except ZeroDivisionError:
+            return self._zero_div('jaccard_np')
+
+    @property
+    def fowlkes_mallows_np(self):
+        try:
+            return _fowlkes_mallows_np(self, epsilon=self.epsilon)
+        except ZeroDivisionError:
+            return self._zero_div('fowlkes_mallows_np')
+
+    @property
+    def avg_f1(self):
+        """Average F1 score."""
+        return self._avg_x('f1')
+
+    @property
+    def avg_jaccard(self):
+        """Average Jaccard index."""
+        return self._avg_x('jaccard')
+
+    @property
+    def avg_fowlkes_mallows(self):
+        return self._avg_x('fowlkes_mallows')
 
     @property
     def avg_recall(self):
@@ -282,3 +375,17 @@ class LabelMatcherList(list):
     def avg_precision(self):
         """Average precision."""
         return self._avg_x('precision')
+
+    @property
+    def precision(self):
+        try:
+            return _precision(self, epsilon=self.epsilon)
+        except ZeroDivisionError:
+            return self._zero_div('precision')
+
+    @property
+    def recall(self):
+        try:
+            return _recall(self, epsilon=self.epsilon)
+        except ZeroDivisionError:
+            return self._zero_div('recall')
