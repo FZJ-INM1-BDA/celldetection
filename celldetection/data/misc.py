@@ -158,7 +158,7 @@ def normalize_percentile(image, percentile=99.9, to_uint8=True):
     return img_as_ubyte(img) if to_uint8 else img
 
 
-def random_crop(*arrays, height, width=None):
+def _legacy_random_crop(*arrays, height, width=None):
     """Random crop.
 
     Args:
@@ -185,6 +185,30 @@ def random_crop(*arrays, height, width=None):
     if len(results) == 1:
         results, = results
     return results
+
+
+def random_crop(inputs, size=None, *args, return_coords=False, return_slices=False, **kwargs):
+    if 'height' in kwargs or 'width' in kwargs:
+        if size is None:
+            return _legacy_random_crop(inputs, *args, **kwargs)
+        else:
+            return _legacy_random_crop(inputs, size, *args, **kwargs)
+    assert size is not None, 'Specify a targeted size for cropping.'
+    reference_size = (inputs[0] if isinstance(inputs, (tuple, list)) else inputs).shape[-len(size):]
+    size = [(np.random.randint(*i) if isinstance(i, tuple) else i) for i in size]
+    diffs = [a - b for a, b in zip(reference_size, size)]
+    coords = [(np.random.randint(0, d) if d > 0 else 0) for d in diffs]
+    slices = tuple(slice(a, a + s) for a, s in zip(coords, size))
+
+    if isinstance(inputs, (list, tuple)):
+        res = tuple((None if i is None else i[slices]) for i in inputs)
+    else:
+        res = inputs[slices]
+
+    meta = tuple(i for i, c in ((coords, return_coords), (slices, return_slices)) if c)
+    if len(meta):
+        return res, meta
+    return res
 
 
 def random_pad(*arrays, size, mode='constant', **kwargs):
