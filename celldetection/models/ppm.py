@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Union
 from torchvision.models.segmentation.deeplabv3 import ASPP
-from ..util.util import lookup_nn
+from ..util.util import lookup_nn, get_nd_conv
 
 __all__ = ['Ppm']
 
@@ -17,6 +17,7 @@ class Ppm(nn.Module):
             norm='BatchNorm2d',
             activation='relu',
             concatenate=True,
+            nd=2,
             **kwargs
     ):
         """Pyramid Pooling Module.
@@ -38,12 +39,14 @@ class Ppm(nn.Module):
         self.blocks = nn.ModuleList()
         self.concatenate = concatenate
         self.out_channels = out_channels * len(scales) + in_channels * int(concatenate)
-        norm = lookup_nn(norm, call=False)
-        activation = lookup_nn(activation, call=False)
+        Conv = get_nd_conv(nd)
+        AdaptiveAvgPool = lookup_nn(nn.AdaptiveAvgPool2d, call=False, nd=nd)
+        norm = lookup_nn(norm, call=False, nd=nd)
+        activation = lookup_nn(activation, call=False, nd=nd)
         for scale in scales:
             self.blocks.append(nn.Sequential(
-                nn.AdaptiveAvgPool2d(output_size=scale),
-                nn.Conv2d(in_channels, out_channels, kernel_size, **kwargs),
+                AdaptiveAvgPool(output_size=scale),
+                Conv(in_channels, out_channels, kernel_size, **kwargs),
                 norm(out_channels),
                 activation(),
             ))
@@ -51,7 +54,7 @@ class Ppm(nn.Module):
     def forward(self, x):
         prefix = [x] if self.concatenate else []
         return torch.cat(prefix + [
-            F.interpolate(m(x), x.shape[-2:], mode='bilinear', align_corners=False) for m in self.blocks
+            F.interpolate(m(x), x.shape[2:], mode='bilinear', align_corners=False) for m in self.blocks
         ], 1)
 
 
@@ -66,9 +69,13 @@ def append_pyramid_pooling_(module: nn.Sequential, out_channels, scales=(1, 2, 3
         out_channels = p.out_channels
     elif method == 'aspp':
         scales = sorted(tuple(set(scales) - {1}))
+        nd = kwargs.pop('nd', 2)
+        assert nd == 2, NotImplementedError('Only nd=2 supported.')
         p = ASPP(in_channels, scales, out_channels, **kwargs)
     else:
         raise ValueError
     module.append(p)
     if hasattr(module, 'out_channels'):
         module.out_channels += (out_channels,)
+    if hasattr(module, 'out_strides'):
+        module.out_strides += module.out_strides[-1:]
