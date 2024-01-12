@@ -1,15 +1,16 @@
 import numpy as np
 import cv2
+import torch
 from skimage.measure import regionprops
 from collections import OrderedDict
 from .segmentation import filter_instances_
 from .misc import labels2properties
-
+from ..util.util import asnumpy
 
 __all__ = [
     'CPNTargetGenerator', 'contours2labels', 'render_contour', 'clip_contour_', 'masks2labels',
     'contours2boxes', 'contours2properties', 'resolve_label_channels',
-    'filter_contours_by_intensity'
+    'filter_contours_by_intensity', 'draw_contours'
 ]
 
 
@@ -240,6 +241,18 @@ def render_contour(contour, val=1, dtype='int32', round=False, reference=None):
     return a, (xmin, xmax), (ymin, ymax)
 
 
+def draw_contours(canvas, contours, val=(51, 255, 51), round=True, contour_idx=-1, thickness=2, **kwargs):
+    if isinstance(contours, torch.Tensor):
+        contours = asnumpy(contours)
+    if canvas.ndim == 2 and isinstance(val, (list, tuple, np.ndarray)) and len(val) == 3:
+        canvas = cv2.cvtColor(canvas, cv2.COLOR_GRAY2RGB)
+    if contours.dtype.kind == 'f':
+        if round:
+            contours = contours.round()
+        contours = contours.astype(int)
+    return cv2.drawContours(canvas, contours, contour_idx, val, thickness, **kwargs)
+
+
 def filter_contours_by_intensity(img, contours, min_intensity=None, max_intensity=200, aggregate='mean'):
     keep = np.ones(len(contours), dtype=bool)
     for idx, con in enumerate(contours):
@@ -261,7 +274,8 @@ def clip_contour_(contour, size):
     np.clip(contour[..., 1], 0, size[0], out=contour[..., 1])
 
 
-def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, gap=3, dtype='int32'):
+def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, gap=3, dtype='int32', ioa_thresh=None,
+                    sort_by=None, sort_descending=True, return_indices=False):
     """Contours to labels.
 
     Convert contours to label image.
@@ -280,19 +294,43 @@ def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, ga
         initial_depth: Initial number of channels. More channels are used if necessary.
         gap: Gap between instances.
         dtype: Data type of label image.
+        ioa_thresh: Intersection over area threshold. Skip contours that have an intersection over own area
+            (i.e. area of contour that already contains a label vs. area of contour) greater `ioa_thresh`,
+            compared to the union of all contours painted before. Note that the order of `contours` is
+            relevant, as contours are processed iteratively. IoA of 0 means no labels present so far, IoA of 1. means
+            the entire contour area is already covered by other contours.
+        sort_by: Optional Array used to sort contours. Note, that if this option is used, labels and contour indices no
+            longer correspond.
+        sort_descending: Whether to sort by descending.
+        return_indices: Whether to return indices.
 
     Returns:
         Array[height, width, channels]. Since contours may assign pixels to multiple objects, the label image comes
         with channels. To remove channels refer to `resolve_label_channels`.
     """
+    contours_ = contours
+    if sort_by is not None:
+        indices = np.argsort(sort_by)
+        if sort_descending:
+            indices = reversed(indices)
+        contours_ = (contours[i] for i in indices)
     labels = np.zeros(tuple(size) + (initial_depth,), dtype=dtype)
     lbl = 1
-    for contour in contours:
+    keep = []
+    for idx, contour in enumerate(contours_):
         if rounded:
             contour = np.round(contour)
         if clip:
             clip_contour_(contour, np.array(size) - 1)
         a, (xmin, xmax), (ymin, ymax) = render_contour(contour, val=lbl, dtype=dtype)
+        if ioa_thresh is not None:
+            m = a > 0
+            crp = (labels[ymin:ymin + a.shape[0], xmin:xmin + a.shape[1]] > 0).any(-1)
+            ioa = crp[m].sum() / m.sum()
+            if ioa > ioa_thresh:
+                continue
+            else:
+                keep.append(idx)
         lbl += 1
         s = (labels[np.maximum(0, ymin - gap): gap + ymin + a.shape[0],
              np.maximum(0, xmin - gap): gap + xmin + a.shape[1]] > 0).sum((0, 1))
@@ -300,6 +338,8 @@ def contours2labels(contours, size, rounded=True, clip=True, initial_depth=1, ga
         if i >= labels.shape[2]:
             labels = np.concatenate((labels, np.zeros(size, dtype=dtype)[..., None]), axis=-1)
         labels[ymin:ymin + a.shape[0], xmin:xmin + a.shape[1], i] += a
+    if return_indices:
+        return labels, keep
     return labels
 
 
@@ -386,7 +426,7 @@ def _labels2distances_fg(labels, fg_mask_wo_overlap, distance_type):
     return dist
 
 
-def _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type):
+def _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type, protected_size=6*6):
     dist = np.zeros_like(fg_mask_wo_overlap, dtype='float32')
     if labels.size > 0:
         for p in regionprops(labels):
@@ -394,7 +434,11 @@ def _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type):
             box_slices = (slice(y0, y1), slice(x0, x1))
             mask = np.any(p.image, 2) & fg_mask_wo_overlap[box_slices]
             d_ = cv2.distanceTransform(np.pad(mask.astype('uint8'), 1), distance_type, 3)[1:-1, 1:-1]
-            d_ /= np.maximum(d_.max(), .000001)
+            if mask.sum() > protected_size:
+                d_max = d_.max()
+                if d_max > 0:
+                    d_ /= d_max
+            d_ = d_.clip(0., 1.)
             dist[box_slices][mask] = d_[mask]
     return dist
 
