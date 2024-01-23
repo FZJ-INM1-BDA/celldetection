@@ -184,6 +184,33 @@ class Config(Dict):
         c.load(filename, backend='yaml')
         return c
 
+    @staticmethod
+    def from_file(filename):
+        c = Config()
+        c.load(filename)
+        return c
+
+    @staticmethod
+    def from_files(filenames, reverse=True):
+        """From files.
+
+        Args:
+            filenames: Filenames
+            reverse: Whether to reverse filenames. True by default. If reversed, the leftmost elements
+                are dominant.
+
+        Returns:
+            Config.
+        """
+        if isinstance(filenames, str):
+            return Config.from_file(filenames)
+        if reverse:
+            filenames = filenames[::-1]
+        c = Config.from_file(filenames[0])
+        for f in filenames[1:]:
+            c.update(Config.from_file(f))
+        return c
+
     def load(self, filename, backend=None):
         ext = splitext(filename)[1]
         if backend == 'yaml' or ext in ('.yml', '.yaml'):
@@ -485,6 +512,33 @@ class Schedule:
     def from_yaml(filename):
         c = Schedule()
         c.load(filename, backend='yaml')
+        return c
+
+    @staticmethod
+    def from_file(filename):
+        c = Schedule()
+        c.load(filename)
+        return c
+
+    @staticmethod
+    def from_files(filenames, reverse=True):
+        """From files.
+
+        Args:
+            filenames: Filenames
+            reverse: Whether to reverse filenames. True by default. If reversed, the leftmost elements
+                are dominant.
+
+        Returns:
+            Schedule.
+        """
+        if isinstance(filenames, str):
+            return Schedule.from_file(filenames)
+        if reverse:
+            filenames = filenames[::-1]
+        c = Schedule.from_file(filenames[0])
+        for f in filenames[1:]:
+            c.add(Schedule.from_file(f))
         return c
 
     def load(self, filename, backend=None):
