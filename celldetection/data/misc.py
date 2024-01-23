@@ -6,11 +6,12 @@ from ..util.util import get_device
 import cv2
 from skimage import measure
 import pandas as pd
+import traceback
 
 __all__ = ['to_tensor', 'transpose_spatial', 'universal_dict_collate_fn', 'normalize_percentile', 'random_crop',
            'channels_last2channels_first', 'channels_first2channels_last', 'ensure_tensor', 'rgb_to_scalar',
            'padding_stack', 'labels2crops', 'labels2properties', 'rle2mask', 'resample_contours',
-           'labels2property_table', 'pad_to_size', 'pad_to_div']
+           'labels2property_table', 'pad_to_size', 'pad_to_div', 'regionprops2d']
 
 
 def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dims=2, has_batch=False):
@@ -122,6 +123,8 @@ def padding_stack(*images, axis=0) -> np.ndarray:
     Returns:
         Array
     """
+    if len(images) == 1 and isinstance(images[0], (list, tuple)):
+        images, = images
     shapes = np.array([i.shape for i in images])
     pad = np.any([np.unique(shapes[:, col].size > 1 for col in range(shapes.shape[1]))])
     if pad:
@@ -194,7 +197,7 @@ def random_crop(inputs, size=None, *args, return_coords=False, return_slices=Fal
         else:
             return _legacy_random_crop(inputs, size, *args, **kwargs)
     assert size is not None, 'Specify a targeted size for cropping.'
-    reference_size = (inputs[0] if isinstance(inputs, (tuple, list)) else inputs).shape[-len(size):]
+    reference_size = (inputs[0] if isinstance(inputs, (tuple, list)) else inputs).shape[:len(size)]
     size = [(np.random.randint(*i) if isinstance(i, tuple) else i) for i in size]
     diffs = [a - b for a, b in zip(reference_size, size)]
     coords = [(np.random.randint(0, d) if d > 0 else 0) for d in diffs]
@@ -443,3 +446,41 @@ def pad_to_div(v, div=32, nd=2, **kwargs):
         div = (div,) * nd
     size = [(i // d + bool(i % d)) * d for i, d in zip(v.shape, div)]
     return pad_to_size(v, size, **kwargs)
+
+
+def regionprops2d(
+        label_image,
+        intensity_image=None,
+        cache=True,
+        *,
+        extra_properties=None,
+        spacing=None,
+        offset=None,
+):
+    """Regionprops 2d.
+
+    Helper function that allows to use `skimage.measure.regionprops` with label images that have channels.
+
+    Note:
+        Labels may not yield in order!
+
+    Args:
+        label_image: Array[h, w] or Array[h, w, c].
+        intensity_image:
+        cache:
+        extra_properties:
+        spacing:
+        offset:
+
+    Returns:
+
+    """
+    assert label_image.ndim in (2, 3)
+    if label_image.ndim == 2:
+        label_image = label_image[..., None]
+    for z in range(label_image.shape[2]):
+        label_image_ = label_image[..., z]
+        for p in measure.regionprops(label_image_, intensity_image=intensity_image, cache=cache,
+                                     extra_properties=extra_properties,
+                                     spacing=spacing, offset=offset):
+            yield p
