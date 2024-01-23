@@ -74,6 +74,7 @@ class GeneralizedUNet(FeaturePyramidNetwork):
             bridge_strides=True,
             bridge_block_cls: 'nn.Module' = None,
             bridge_block_kwargs: dict = None,
+            secondary_block: 'nn.Module' = None,
             in_strides_list: Union[List[int], Tuple[int]] = None,
             out_channels_list: Union[List[int], Tuple[int]] = None,
             nd=2,
@@ -148,7 +149,10 @@ class GeneralizedUNet(FeaturePyramidNetwork):
                 else:  # normal cat
                     self.apply_cat[i] = True
                     inp = inc + lat,
-                self.layer_blocks.append(cls(*inp, ouc, nd=nd, **kw))
+                layer_block = cls(*inp, ouc, nd=nd, **kw)
+                if secondary_block is not None:  # must be preconfigured and not change channels
+                    layer_block = nn.Sequential(layer_block, secondary_block(ouc, nd=nd))
+                self.layer_blocks.append(layer_block)
 
         self.depth = len(self.layer_blocks)
         self.interpolate = interpolate

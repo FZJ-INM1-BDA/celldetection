@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from functools import partial
 from torchvision.ops import misc, Permute
 from torchvision.ops.stochastic_depth import StochasticDepth
-from ..util.util import lookup_nn
+from ..util.util import lookup_nn, get_nn
 from .ppm import append_pyramid_pooling_
 from .commons import LayerNorm1d, LayerNorm2d, LayerNorm3d, channels_last_permute, channels_first_permute
 from torch.hub import load_state_dict_from_url
@@ -131,12 +131,16 @@ class ConvNeXt(nn.Sequential, HyperparametersMixin):
             pyramid_pooling=False,
             pyramid_pooling_channels=64,
             pyramid_pooling_kwargs=None,
+            secondary_block=None,
             nd=2,
     ):
         if not block_setting:
             raise ValueError("The block_setting should not be empty")
         elif not (isinstance(block_setting, Sequence) and all([isinstance(s, CNBlockConfig) for s in block_setting])):
             raise TypeError("The block_setting should be List[CNBlockConfig]")
+
+        if secondary_block is not None:
+            secondary_block = get_nn(secondary_block, nd=nd)
 
         block_kwargs = {} if block_kwargs is None else block_kwargs
         if block is None:
@@ -185,6 +189,8 @@ class ConvNeXt(nn.Sequential, HyperparametersMixin):
                 stage.append(block(cnf.input_channels, layer_scale=layer_scale, stochastic_depth_prob=sd_prob,
                                    **block_kwargs))
                 stage_block_id += 1
+            if secondary_block is not None:
+                stage.append(secondary_block(cnf.input_channels, nd=nd))
             layers.append(nn.Sequential(*stage))
             if cnf.out_channels is not None:
                 # Downsampling

@@ -1,7 +1,7 @@
 from torch import nn
 from torch.nn import functional as F
 from torchvision.models import resnet as tvr
-from ..util.util import Dict, lookup_nn, get_nd_conv
+from ..util.util import Dict, lookup_nn, get_nd_conv, get_nn
 from torch.hub import load_state_dict_from_url
 from .ppm import append_pyramid_pooling_
 from typing import Type, Union, Optional
@@ -111,7 +111,31 @@ def _make_layer(  # Port from torchvision (to support 3d)
         stride: int = 1,
         dilate: bool = False,
         nd=2,
+        secondary_block=None,
+        downsample_method=None,
 ) -> nn.Sequential:
+    """
+
+    References:
+        - [1] https://arxiv.org/abs/1812.01187.pdf
+
+    Args:
+        self:
+        block:
+        planes:
+        blocks:
+        stride:
+        dilate:
+        nd:
+        secondary_block:
+        downsample_method: Downsample method. None: 1x1Conv with stride, Norm (standard ResNet),
+            'avg': AvgPool, 1x1Conv, Norm (ResNet-D in [1])
+
+    Returns:
+
+    """
+    if secondary_block is not None:
+        secondary_block = get_nn(secondary_block, nd=nd)
     norm_layer = self._norm_layer
     downsample = None
     previous_dilation = self.dilation
@@ -119,10 +143,19 @@ def _make_layer(  # Port from torchvision (to support 3d)
         self.dilation *= stride
         stride = 1
     if stride != 1 or self.inplanes != planes * block.expansion:
-        downsample = nn.Sequential(
-            conv1x1(self.inplanes, planes * block.expansion, stride, nd=nd),
-            norm_layer(planes * block.expansion),
-        )
+        if downsample_method is None or stride <= 1:
+            downsample = nn.Sequential(
+                conv1x1(self.inplanes, planes * block.expansion, stride, nd=nd),
+                norm_layer(planes * block.expansion),
+            )
+        elif downsample_method == 'avg':
+            downsample = nn.Sequential(
+                get_nn(nn.AvgPool2d, nd=nd)(2, stride=stride),
+                conv1x1(self.inplanes, planes * block.expansion, nd=nd),
+                norm_layer(planes * block.expansion),
+            )
+        else:
+            raise ValueError(f'Unknown downsample_method: {downsample_method}')
 
     layers = []
     layers.append(
@@ -139,11 +172,13 @@ def _make_layer(  # Port from torchvision (to support 3d)
             norm_layer=norm_layer,
             nd=nd,
         ))
+    if secondary_block is not None:
+        layers.append(secondary_block(self.inplanes, nd=nd))  # must be preconfigured and not change channels
     return nn.Sequential(*layers)
 
 
 def make_res_layer(block, inplanes, planes, blocks, norm_layer=nn.BatchNorm2d, base_width=64, groups=1, stride=1,
-                   dilation=1, dilate=False, nd=2, **kwargs) -> nn.Module:
+                   dilation=1, dilate=False, nd=2, secondary_block=None, **kwargs) -> nn.Module:
     """
 
     Args:
@@ -157,6 +192,9 @@ def make_res_layer(block, inplanes, planes, blocks, norm_layer=nn.BatchNorm2d, b
         stride:
         dilation:
         dilate:
+        nd:
+        secondary_block:
+        kwargs:
 
     Returns:
 
@@ -165,7 +203,8 @@ def make_res_layer(block, inplanes, planes, blocks, norm_layer=nn.BatchNorm2d, b
     d = Dict(inplanes=inplanes, _norm_layer=norm_layer, base_width=base_width,
              groups=groups, dilation=dilation)  # almost a ResNet
 
-    return _make_layer(self=d, block=block, planes=planes, blocks=blocks, stride=stride, dilate=dilate, nd=nd)
+    return _make_layer(self=d, block=block, planes=planes, blocks=blocks, stride=stride, dilate=dilate, nd=nd,
+                       secondary_block=secondary_block)
 
 
 def _apply_mapping_rules(key, rules: dict):
