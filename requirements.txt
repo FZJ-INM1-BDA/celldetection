@@ -15,3 +15,4 @@ timm
 segmentation-models-pytorch
 pandas
 pytorch_lightning
+pyyaml
