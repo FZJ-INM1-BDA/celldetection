@@ -4,7 +4,7 @@ import torch
 from skimage.measure import regionprops
 from collections import OrderedDict
 from .segmentation import filter_instances_
-from .misc import labels2properties
+from .misc import labels2properties, resample_contours
 from ..util.util import asnumpy
 
 __all__ = [
@@ -426,7 +426,7 @@ def _labels2distances_fg(labels, fg_mask_wo_overlap, distance_type):
     return dist
 
 
-def _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type, protected_size=6*6):
+def _labels2distances_instance(labels, fg_mask_wo_overlap, distance_type, protected_size=6 * 6):
     dist = np.zeros_like(fg_mask_wo_overlap, dtype='float32')
     if labels.size > 0:
         for p in regionprops(labels):
@@ -500,6 +500,7 @@ class CPNTargetGenerator:
         self.partials_mask = None
         self._sampling = self._contours = self._fourier = self._locations = self._sampled_contours = None
         self._sampled_sizes = None
+        self._resampled_contours = None
         self._reset()
 
     def _reset(self):
@@ -509,6 +510,7 @@ class CPNTargetGenerator:
         self._locations = None
         self._sampled_contours = None
         self._sampled_sizes = None
+        self._resampled_contours = None
 
     def feed(self, labels, border=1, min_area=1, max_area=None, **kwargs):
         """
@@ -581,6 +583,36 @@ class CPNTargetGenerator:
             self._sampled_contours = fourier2contour(self.fourier, self.locations, samples=self.samples,
                                                      sampling=self.sampling)
         return self._sampled_contours
+
+    @property
+    def resampled_contours(self):
+        """
+        Returns:
+            Tensor[num_contours, num_points, 2]
+        """
+        if self._resampled_contours is None:
+            contours: dict = self.contours
+
+            if len(contours) > 0:
+                max_label = np.max(list(contours.keys()))
+            else:
+                max_label = 0
+
+            resampled = np.zeros((max_label, self.samples, 2))
+            for key, contour in contours.items():
+                if contour.ndim == 3:
+                    contour = contour.squeeze(1)
+
+                # Resample contour (would be done sequentially anyway because of different shapes)
+                resampled[key - 1] = resample_contours(contour, self.samples)
+
+            self._resampled_contours = resampled
+
+            assert (self._resampled_contours.shape == self._sampled_contours.shape), (
+                f'Shape mismatch: {self._resampled_contours.shape, self._sampled_contours.shape}')
+
+            # self._resampled_contours = OrderedDict({k: v for k, v in zip(keys, _resampled_contours)})
+        return self._resampled_contours
 
     @property
     def sampled_sizes(self):
