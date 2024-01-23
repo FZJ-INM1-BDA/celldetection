@@ -14,6 +14,9 @@ from .features import *
 from .ppm import *
 from .loss import *
 from .convnext import *
+from .convnextv2 import *
+from .densenet import *
+from .mamba import *
 from .manet import *
 from .smp import *
 from .timmodels import *
