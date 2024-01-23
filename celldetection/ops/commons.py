@@ -4,7 +4,48 @@ import torch.nn.functional as F
 from typing import List
 
 __all__ = ['downsample_labels', 'padded_stack2d', 'split_spatially', 'minibatch_std_layer', 'strided_upsampling2d',
-           'interpolate_vector', 'pad_to_div', 'pad_to_size', 'spatial_mean']
+           'interpolate_vector', 'pad_to_div', 'pad_to_size', 'spatial_mean', 'process_scores', 'equal_size']
+
+
+def equal_size(x, reference, mode='bilinear', align_corners=False):
+    if reference.shape[2:] != x.shape[2:]:  # 337 ns
+        # bilinear: 3.79 ms for (128, 128) to (512, 512)
+        # bicubic: 11.5 ms for (128, 128) to (512, 512)
+        x = F.interpolate(x, reference.shape[2:],
+                          mode=mode, align_corners=align_corners)
+    return x
+
+
+def _apply_score_bounds(scores, scores_lower_bound, scores_upper_bound):
+    if scores_upper_bound is not None:
+        assert scores_upper_bound.ndim >= 4, (f'Please make sure scores_upper_bound comes in NCHW format: '
+                                              f'{scores_upper_bound.shape}')
+        assert scores_upper_bound.dtype.is_floating_point, (f'Please make sure to pass scores_upper_bound as float '
+                                                            f'instead of {scores_upper_bound.dtype}')
+        scores = torch.minimum(scores, equal_size(scores_upper_bound, scores))
+    if scores_lower_bound is not None:
+        assert scores_lower_bound.ndim >= 4, (f'Please make sure scores_upper_bound comes in NCHW format: '
+                                              f'{scores_lower_bound.shape}')
+        assert scores_lower_bound.dtype.is_floating_point, (f'Please make sure to pass scores_upper_bound as float '
+                                                            f'instead of {scores_lower_bound.dtype}')
+        scores = torch.maximum(scores, equal_size(scores_lower_bound, scores))
+    return scores
+
+
+def process_scores(scores, score_channels, score_thresh, scores_lower_bound, scores_upper_bound):
+    score_bounds = scores_lower_bound, scores_upper_bound
+    if score_channels == 1:
+        scores = _apply_score_bounds(torch.sigmoid(scores), *score_bounds)
+        classes = torch.squeeze((scores > score_thresh).long(), 1)
+    elif score_channels == 2:
+        scores = _apply_score_bounds(F.softmax(scores, dim=1)[:, 1:2], *score_bounds)
+        classes = torch.squeeze((scores > score_thresh).long(), 1)
+    elif score_channels > 2:
+        scores = _apply_score_bounds(F.softmax(scores, dim=1), *score_bounds)
+        classes = torch.argmax(scores, dim=1).long()
+    else:
+        raise ValueError
+    return scores, classes
 
 
 def downsample_labels(inputs, size: List[int]):
