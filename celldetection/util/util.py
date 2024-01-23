@@ -37,7 +37,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'load_model', 'freeze_', 'unfreeze_', 'freeze_submodules_', 'unfreeze_submodules_',
            'image_to_base64', 'base64_to_image', 'model2dict', 'dict2model', 'is_ipython', 'grouped_glob',
            'tweak_attribute_', 'to_batched_h5', 'compare_file_hashes', 'import_file', 'load_imagej_rois',
-           'glob_h5_split']
+           'glob_h5_split', 'say_goodbye', 'parse_url_params', 'save_requirements', 'get_installed_packages']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
@@ -204,7 +204,11 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, nd=None, **kw):
         key, = item
         val = item[key]
         assert isinstance(val, dict)
-        v = lookup_nn(key, src=src, call=False, inplace=inplace, nd=nd)(**val)
+        cls = lookup_nn(key, src=src, call=False, inplace=inplace, nd=nd)
+        if issubclass(cls, nn.modules.loss._WeightedLoss):  # allows weight to be passed as lists (common use case)
+            if 'weight' in val and not isinstance(val['weight'], Tensor):
+                val['weight'] = torch.as_tensor(val['weight'])
+        v = cls(**val)
     elif isinstance(item, type) and nd is not None:
         v = replace_ndim(item, nd)
     else:
@@ -216,8 +220,11 @@ def lookup_nn(item: str, *a, src=None, call=True, inplace=True, nd=None, **kw):
     return v
 
 
-def get_nn(item: Union[str, 'nn.Module', Type['nn.Module']], src=None, nd=None):
-    return lookup_nn(item, src=src, nd=nd, call=False)
+def get_nn(item: Union[str, 'nn.Module', Type['nn.Module']], src=None, nd=None, call_if_type=False):
+    ret = lookup_nn(item, src=src, nd=nd, call=False)
+    if call_if_type and type(ret) is type:
+        ret = ret()
+    return ret
 
 
 class NormProxy:
@@ -261,12 +268,12 @@ class NormProxy:
     __str__ = __repr__
 
 
-def reduce_loss_dict(losses: dict, divisor):
-    return sum((i for i in losses.values() if i is not None)) / divisor
+def reduce_loss_dict(losses: dict, divisor, ignore_prefix='_'):
+    return sum((i for k, i in losses.items() if (i is not None and not k.startswith(ignore_prefix)))) / divisor
 
 
 def add_to_loss_dict(d: dict, key: str, loss: torch.Tensor, weight=None):
-    dk = d[key]
+    dk = d.get(key, None)
     torch.nan_to_num_(loss, 0., 0., 0.)
     if weight is not None:
         loss = loss * weight
@@ -1150,7 +1157,7 @@ def get_tiling_slices(
 
 
 def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, driver=None,
-          create_dataset_kw: dict = None, **kwargs):
+          create_dataset_kw: dict = None, attributes: dict = None, **kwargs):
     """To hdf5 file.
 
     Write data to hdf5 file.
@@ -1169,9 +1176,11 @@ def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, dr
             dataset, without creating a new dataset.
         driver: Hdf5 driver.
         create_dataset_kw: Additional keyword arguments for ``h5py.File().create_dataset``.
+        attributes: Attributes. Format: `dict(dataset_name=dict(attribute0=value0))`.
+            Note that only specific attributes are supported by h5py (e.g. not None).
         **kwargs: Data as ``{dataset_name: data}``.
-
     """
+    attributes = {} if attributes is None else attributes
     create_dataset_kw = {} if create_dataset_kw is None else create_dataset_kw
     with h5py.File(filename, mode, **({} if driver is None else dict(driver=driver))) as h:
         for k, v in kwargs.items():
@@ -1181,12 +1190,15 @@ def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, dr
             exists = k in h
             if overwrite and exists:
                 del h[k]
-            elif exists:
-                h[k][:] = v
+            if exists:
+                ds = h[k]
+                ds[:] = v
             else:
-                h.create_dataset(k, data=v, compression=compression,
-                                 chunks=chunks_,
-                                 **create_dataset_kw)
+                ds = h.create_dataset(k, data=v, compression=compression, chunks=chunks_, **create_dataset_kw)
+            attrs = attributes.get(k)
+            if attrs:
+                assert isinstance(attrs, dict)
+                ds.attrs.update(attrs)
 
 
 def to_batched_h5(filename, index, batch_size=256, mode='a', chunks=None, compression=None, overwrite=False,
@@ -1692,3 +1704,67 @@ def glob_h5_split(pathname, ext='-r.h5', **kwargs):
         Modified glob results. Each filename has its appendix (`ext`) removed.
     """
     return [f[:-len(ext)] for f in glob(pathname=pathname if pathname.endswith(ext) else pathname + ext, **kwargs)]
+
+
+def say_goodbye():
+    a = ('All done,Task complete,Script finalized,Operation successful,All set,Execution concluded,Work finished,Proces'
+         's ended,All clear,Routine complete,Job done,Sequence finalized,Task accomplished,Chores completed,Duty conclu'
+         'ded,Activity finished,Assignment completed,Undertaking achieved,Procedure closed,Milestone reached')
+    b = ('have a magnificent day,enjoy your splendid day,hope your day is extraordinary,have a delightful day,may your '
+         'day be as bright as your smile,wishing you a day full of joy,have an awesome day ahead,enjoy your amazing day'
+         ',hope your day is as fantastic as you,have a superb day,may your day be filled with happiness,wishing you a d'
+         'ay of peace and joy,have a wonderful adventure today,may your day be as productive as you are,have a day as w'
+         'onderful as your achievements')
+    print(', '.join((np.random.choice(i.split(',')) for i in (a, b))) + '!')
+
+
+def parse_url_params(url, sep='?', param_sep=';'):
+    """Parse url params.
+
+    Examples:
+        ```Python
+        cd.parse_url_params('file.py?a=42;b=43')
+        ('file.py', {'a': 42, 'b': 43))
+        ```
+
+    Args:
+        url: URL.
+        sep: Separator between URL and params.
+        param_sep: Separator between params.
+
+    Returns:
+        Tuple of URL and parameter dict.
+    """
+    ar = url.split(sep)
+    if len(ar) > 1:
+        url = sep.join(url.split(sep)[:-1])
+    ar = dict([(tuple(i.split('=')) if '=' in i else (i, True)) for i in ar[-1].split(param_sep)]) if len(
+        ar) > 1 else None
+    return url, ar
+
+
+def get_installed_packages(template='{name}=={version}'):
+    """Get installed packages.
+
+    Returns a list of all installed packages.
+
+    Returns:
+        List of installed packages.
+    """
+    import importlib.metadata
+
+    return [package for package in sorted([
+        template.format(name=dist.metadata['Name'], version=dist.version) for dist in importlib.metadata.distributions()
+    ])]
+
+
+def save_requirements(filename, **kwargs):
+    """Save requirements.
+
+    Writes all installed packages with specified versions to `filename`.
+
+    Args:
+        filename: Filename.
+        **kwargs: Additional keyword arguments for `cd.print_to_file`.
+    """
+    print_to_file('\n'.join(get_installed_packages()), filename=filename, **kwargs)
