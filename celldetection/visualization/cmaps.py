@@ -17,7 +17,7 @@ def random_colors_hsv(num, hue_range=(0, 180), saturation_range=(60, 133), value
 
 
 def label_cmap(labels: ndarray, colors: Union[str, ndarray] = 'rand', zero_val: Union[float, tuple, list] = 0.,
-               rgba: bool = True, alpha: float = None):
+               rgba: bool = True, alpha: float = None, reduce_axis=2):
     """Label colormap.
 
     Applies a colormap to a label image.
@@ -29,6 +29,7 @@ def label_cmap(labels: ndarray, colors: Union[str, ndarray] = 'rand', zero_val: 
         zero_val: Special color for the zero label (usually background).
         rgba: Whether to add an alpha channel to rgb colors.
         alpha: Specific alpha value.
+        reduce_axis: Axis to be reduced with alpha compositing (e.g. channel axis).
 
     Returns:
         Mapped labels. E.g. rgba mapping Array[h, w] -> Array[h, w, 4].
@@ -50,4 +51,13 @@ def label_cmap(labels: ndarray, colors: Union[str, ndarray] = 'rand', zero_val: 
         m = labels != 0
         labels[m] = labels[m] % len(colors) + 1
         colors = np.concatenate((np.ones_like(colors[:1]) * zero_val, colors))
-    return colors[labels]
+    res = colors[labels]
+
+    if reduce_axis and labels.ndim > 2:  # reduce label channels by alpha weighted average
+        weight = res[..., -1]
+        weight = weight / (weight.sum(reduce_axis, keepdims=True) + 1e-12)
+        if reduce_axis < 0:
+            reduce_axis = labels.ndim + reduce_axis
+        res = (weight[..., None] * res).sum(reduce_axis)
+
+    return res
