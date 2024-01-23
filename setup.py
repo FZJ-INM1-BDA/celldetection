@@ -35,5 +35,11 @@ setup(
         'Topic :: Scientific/Engineering :: Medical Science Apps.',
         'License :: OSI Approved :: Apache Software License',
         'Operating System :: OS Independent'
-    ]
+    ],
+    entry_points={
+        'console_scripts': [
+            'cd-inference-cpn=scripts.cpn_inference:main',
+            # 'cd-train=scripts.train:main'
+        ]
+    }
 )
