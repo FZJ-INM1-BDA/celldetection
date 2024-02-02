@@ -33,7 +33,7 @@ def _title(titles, idx=None):
         plt.title(titles)
     elif idx is not None and isinstance(titles, (list, tuple)):
         plt.title(titles[idx])
-    else:
+    elif titles is not None:
         plt.title(str(titles))
 
 
