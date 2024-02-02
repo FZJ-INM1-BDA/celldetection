@@ -5,17 +5,19 @@ from torch.nn import functional as F
 from torchvision.models.detection import backbone_utils
 from torchvision.models._utils import IntermediateLayerGetter
 from torchvision.ops import feature_pyramid_network
-from torchvision.ops.feature_pyramid_network import ExtraFPNBlock
-from ..util.util import lookup_nn
-from .commons import ConvNorm, _ni_3d
+from torchvision.ops.feature_pyramid_network import ExtraFPNBlock as _ExtraFPNBlock
+from ..util.util import lookup_nn, dict2model, update_model_hparams_, resolve_model
+from .commons import ConvNorm, _ni_3d, Normalize
 from .resnet import ResNet18, ResNet34, ResNet50, ResNet101, ResNet152, ResNeXt50_32x4d, ResNeXt101_32x8d, \
     ResNeXt152_32x8d, WideResNet50_2, WideResNet101_2
 from .mobilenetv3 import MobileNetV3Large, MobileNetV3Small
 from typing import Optional, Callable, List, Tuple, Dict
 from functools import partial
+from pytorch_lightning.core.mixins import HyperparametersMixin
 from .smp import SmpEncoder
 from .timmodels import TimmEncoder
 from .convnext import ConvNeXtLarge, ConvNeXtSmall, ConvNeXtBase, ConvNeXtTiny
+import copy
 
 __all__ = []
 
@@ -23,6 +25,26 @@ __all__ = []
 def register(obj):
     __all__.append(obj.__name__)
     return obj
+
+
+class ExtraFPNBlock(_ExtraFPNBlock):
+    """
+    Base class for the extra block in the FPN.
+
+    Args:
+        results (List[Tensor]): the result of the FPN
+        x (List[Tensor]): the original feature maps
+        names (List[str]): the names for each one of the
+            original feature maps
+
+    Returns:
+        results (List[Tensor]): the extended set of results
+            of the FPN
+        names (List[str]): the extended set of names for the results
+    """
+
+    def adapt_out_channel_list(self, channel_list):  # must be implemented if extra block changes channels
+        return channel_list
 
 
 class LastLevelMaxPool(ExtraFPNBlock):
@@ -38,6 +60,9 @@ class LastLevelMaxPool(ExtraFPNBlock):
         """
         super().__init__()
         self._fn = lookup_nn('max_pool2d', nd=nd, call=False, src=F)
+
+    def adapt_out_channel_list(self, channel_list):  # must be implemented if extra block changes channels
+        return channel_list + channel_list[-1:]
 
     def forward(
             self,
@@ -62,7 +87,24 @@ class FeaturePyramidNetwork(feature_pyramid_network.FeaturePyramidNetwork):
             norm_layer: Optional[Callable[..., nn.Module]] = None,
             nd: int = 2,
     ):
+        """Feature Pyramid Network
+
+        Note:
+            Model uses output convolutions, mapping decoder features to the returned output.
+            If output features are not used (e.g. by prediction heads), the parameters of the output convolutions
+            will not contribute to the loss, which is to be avoided and may lead to a `RuntimeError`.
+
+        Args:
+            in_channels_list:
+            out_channels:
+            block_cls:
+            block_kwargs:
+            extra_blocks:
+            norm_layer:
+            nd:
+        """
         super(feature_pyramid_network.FeaturePyramidNetwork, self).__init__()
+
         block = partial(ConvNorm, nd=nd) if block_cls is None else block_cls
         block_kwargs = {} if block_kwargs is None else block_kwargs
         self.inner_blocks = nn.ModuleList()
@@ -99,26 +141,50 @@ class BackboneWithFPN(backbone_utils.BackboneWithFPN):
             return_layers: Dict[str, str],
             in_channels_list: List[int],
             out_channels: int,
+            out_channel_list: List[int],
             extra_blocks: Optional['ExtraFPNBlock'] = None,
             norm_layer: Optional[Callable[..., nn.Module]] = None,
+            nd: int = 2,
+            **kwargs
     ) -> None:
         super(backbone_utils.BackboneWithFPN, self).__init__()
 
         if extra_blocks is None:
-            extra_blocks = backbone_utils.LastLevelMaxPool()
+            extra_blocks = LastLevelMaxPool(nd=nd)
+            if hasattr(extra_blocks, 'adapt_out_channel_list'):
+                out_channel_list = extra_blocks.adapt_out_channel_list(out_channel_list)
 
+        pretrained_cfg = backbone.__dict__.get('pretrained_cfg', {})
+        if not len(pretrained_cfg) and hasattr(backbone, 'hparams') and isinstance(backbone.hparams, dict):
+            pretrained_cfg = backbone.hparams.get('pretrained_cfg', pretrained_cfg)
+
+        if kwargs.pop('normalize', True):
+            self.normalize = Normalize(mean=kwargs.get('inputs_mean', pretrained_cfg.get('mean', 0.)),
+                                       std=kwargs.get('inputs_std', pretrained_cfg.get('std', 1.)),
+                                       assert_range=kwargs.get('assert_range', (0., 1.)))
+        else:
+            self.normalize = None
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
         self.fpn = FeaturePyramidNetwork(
             in_channels_list=in_channels_list,
             out_channels=out_channels,
             extra_blocks=extra_blocks,
             norm_layer=norm_layer,
+            nd=nd
         )
-        self.out_channels = out_channels
+        # self.out_channels = out_channels
+        self.out_channels = out_channel_list
+
+    def forward(self, x: Tensor) -> Dict[str, Tensor]:
+        if self.normalize is not None:
+            x = self.normalize(x)
+        x = self.body(x)
+        x = self.fpn(x)
+        return x
 
 
 @register
-class FPN(BackboneWithFPN):
+class FPN(BackboneWithFPN, HyperparametersMixin):
     def __init__(self, backbone, channels=256, return_layers: dict = None, **kwargs):
         """
 
@@ -142,6 +208,9 @@ class FPN(BackboneWithFPN):
                 Note that this influences how outputs are computed, as the input for the upsampling
                 is gathered by `IntermediateLayerGetter` based on given dict keys.
         """
+        self.save_hyperparameters(ignore=['backbone'])
+        update_model_hparams_(self, resolve=kwargs.pop('resolve_model_hparam', True), backbone=backbone)
+        backbone = resolve_model(backbone, **kwargs.pop('backbone_kwargs', {}))
         names = [name for name, _ in backbone.named_children()]  # assuming ordered
         if return_layers is None:
             return_layers = {n: str(i) for i, n in enumerate(names)}
@@ -151,6 +220,7 @@ class FPN(BackboneWithFPN):
             return_layers=layers,
             in_channels_list=list(backbone.out_channels),
             out_channels=channels,
+            out_channel_list=[channels] * len(layers),
             **kwargs
         )
 
