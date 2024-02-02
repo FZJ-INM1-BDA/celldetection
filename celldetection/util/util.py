@@ -1,5 +1,6 @@
 import numpy as np
 import inspect
+import copy
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -37,7 +38,8 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'load_model', 'freeze_', 'unfreeze_', 'freeze_submodules_', 'unfreeze_submodules_',
            'image_to_base64', 'base64_to_image', 'model2dict', 'dict2model', 'is_ipython', 'grouped_glob',
            'tweak_attribute_', 'to_batched_h5', 'compare_file_hashes', 'import_file', 'load_imagej_rois',
-           'glob_h5_split', 'say_goodbye', 'parse_url_params', 'save_requirements', 'get_installed_packages']
+           'glob_h5_split', 'say_goodbye', 'parse_url_params', 'save_requirements', 'get_installed_packages',
+           'resolve_model']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
@@ -273,6 +275,8 @@ def reduce_loss_dict(losses: dict, divisor, ignore_prefix='_'):
 
 
 def add_to_loss_dict(d: dict, key: str, loss: torch.Tensor, weight=None):
+    if loss is None:
+        return
     dk = d.get(key, None)
     torch.nan_to_num_(loss, 0., 0., 0.)
     if weight is not None:
@@ -377,12 +381,13 @@ def dict2model(conf, **kwargs):
     return m
 
 
-def _load_cd_format(m, **kwargs):
+def _load_cd_format(m, pretrained=True, **kwargs):
     assert isinstance(m, dict) and 'cd.models' in m.keys()
     state_dict = m['state_dict']
     conf = m['cd.models']
     m = dict2model(conf, **kwargs)
-    m.load_state_dict(state_dict)
+    if pretrained:
+        m.load_state_dict(state_dict, strict=kwargs.get('pretrained_strict', True))
     return m
 
 
@@ -444,14 +449,17 @@ def model2dict(model: 'nn.Module'):
     )
 
 
-def save_fetchable_model(model: 'nn.Module', filename, append_hash=16):
+def save_fetchable_model(model: 'nn.Module', filename, append_hash=16, **kwargs):
+    from ..__meta__ import __version__
     if not len(splitext(filename)[1]):
         filename += '.pt'
     model.eval()
     model = model.to('cpu')
     torch.save({
+        'cd.__version__': __version__,
         'cd.models': model2dict(model),
         'state_dict': model.state_dict(),
+        **kwargs
     }, filename)
     if append_hash:
         if append_hash is True:
@@ -1768,3 +1776,80 @@ def save_requirements(filename, **kwargs):
         **kwargs: Additional keyword arguments for `cd.print_to_file`.
     """
     print_to_file('\n'.join(get_installed_packages()), filename=filename, **kwargs)
+
+
+def update_model_hparams_(obj, resolve=True, **kwargs):
+    assert hasattr(obj, '_set_hparams')
+    assert hasattr(obj, '_hparams_initial')
+    assert hasattr(obj, '_hparams')
+    changes = {}
+    for key, value in kwargs.items():
+        if isinstance(value, nn.Module):
+            if resolve:
+                value = model2dict(value)
+        changes[key] = value
+
+    if len(changes):
+        # Override hparams
+        obj._set_hparams(changes)
+        obj._hparams_initial = copy.deepcopy(obj._hparams)
+
+
+def resolve_model(value, src=None, map_location='cpu', check_hash=None, **kwargs) -> 'nn.Module':
+    """Resolve model.
+
+    Args:
+        value: Model description. Either `nn.Module`, `str` (URL (leading http), filename, hosted model name,
+            class name, or dict).
+        src: Class name source. (cd.models is default).
+        map_location: Map location for loaded models. (cpu is default).
+        check_hash: Whether to check hash. Only relevant for downloads. Hash must be postfix in filename.
+        **kwargs: Keyword arguments for respective handler.
+
+    Returns:
+        Module.
+    """
+    if isinstance(value, nn.Module):
+        return value
+    elif isinstance(value, str):
+        if src is None:
+            from .. import models as src
+
+        # Model name
+        if value in dir(src):
+            item = getattr(src, value)
+            assert issubclass(item, nn.Module), (f'Model variable must describe a torch.nn.Module, '
+                                                 f'but found {value, item}')
+            return item(**kwargs)
+
+        # URL or hosted model
+        elif value.startswith('http') or value.startswith('cd://') or (not isfile(value) and not splitext(value)[1]):
+            if check_hash is None:
+                check_hash = value.startswith('cd://') or (not isfile(value) and not splitext(value)[1])
+            return fetch_model(value, map_location=map_location, check_hash=check_hash, **kwargs)
+
+        # Filename
+        elif isfile(value):
+            return load_model(value, map_location=map_location, **kwargs)
+    elif isinstance(value, dict):
+        return dict2model(value, **kwargs)
+    else:
+        raise ValueError(f'Could not handle type of `value`: {type(value)}')
+
+
+def resolve_pretrained(pretrained, state_dict_mapper=None, **kwargs):
+    if isinstance(pretrained, str):
+        if isfile(pretrained):
+            state_dict = torch.load(pretrained)
+        else:
+            state_dict = load_state_dict_from_url(pretrained)
+        if 'state_dict' in state_dict:
+            state_dict = state_dict['state_dict']
+        if '.pytorch.org' in pretrained:
+            if state_dict_mapper is not None:
+                state_dict = state_dict_mapper(state_dict=state_dict, **kwargs)
+    else:
+        raise ValueError('There is no default set of weights for this model. '
+                         'Please specify a URL or filename using the `pretrained` argument.')
+    return state_dict
+
