@@ -10,14 +10,14 @@ WINDOWS = name == 'nt'
 __all__ = ['nms', 'contours2boxes', 'pairwise_box_iou', 'pairwise_generalized_box_iou', 'filter_by_box_voting']
 
 
-def no_decorator(*args, **kwargs):
+def torch_compile(*args, **kwargs):
     def decorator(func):
-        return func
+        if WINDOWS:
+            return func  # compile not supported on Windows, yet
+        else:
+            return torch.compile(func, *args, **kwargs)
 
     return decorator
-
-
-torch_compile = (no_decorator if WINDOWS else torch.compile)  # TODO: Remove when torch.compile is supports on Windows
 
 
 @torch_compile(dynamic=True)
