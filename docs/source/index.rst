@@ -28,9 +28,8 @@ Content
 .. toctree::
    :maxdepth: 1
 
-   intro
-   started
-   examples
+   install
+   inference
 
 API Reference
 -------------
