@@ -5,6 +5,7 @@ scikit-image
 opencv-python
 torch>=2.0.0
 torchvision
+tensorboard
 seaborn
 tqdm
 h5py
