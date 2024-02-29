@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 import torch
 from skimage.measure import regionprops
+from skimage import img_as_ubyte
 from collections import OrderedDict
 from .segmentation import filter_instances_
 from .misc import labels2properties, resample_contours
@@ -10,7 +11,7 @@ from ..util.util import asnumpy
 __all__ = [
     'CPNTargetGenerator', 'contours2labels', 'render_contour', 'clip_contour_', 'masks2labels',
     'contours2boxes', 'contours2properties', 'resolve_label_channels',
-    'filter_contours_by_intensity', 'draw_contours'
+    'filter_contours_by_intensity', 'draw_contours', 'contours2overlay'
 ]
 
 
@@ -627,3 +628,23 @@ class CPNTargetGenerator:
             c = self.sampled_contours
             self._sampled_sizes = c.max(1) - c.min(1)
         return self._sampled_sizes
+
+
+def contours2overlay(contours, size, hue_range=(0, 180), saturation_range=(60, 133), value_range=(180, 256),
+                     rounded=True, clip=True, intermediate_dtype='float16'):
+    from ..visualization.cmaps import random_colors_hsv
+    overlay = np.zeros(tuple(size) + (4,), dtype=intermediate_dtype)
+    counter = np.zeros(tuple(size), dtype=intermediate_dtype)
+    for idx, contour in enumerate(contours):
+        if rounded:
+            contour = np.round(contour)
+        if clip:
+            clip_contour_(contour, np.array(size) - 1)
+        a, (xmin, xmax), (ymin, ymax) = render_contour(contour, val=1, dtype='uint8')
+        c = random_colors_hsv(1, hue_range=hue_range, saturation_range=saturation_range, value_range=value_range)
+        counter[ymin:ymin + a.shape[0], xmin:xmin + a.shape[1]] += a
+        overlay[ymin:ymin + a.shape[0], xmin:xmin + a.shape[1]] += (list(c[0]) + [1.]) * a[..., None]
+    m = counter > 1
+    overlay[m] /= counter[m][..., None]
+    overlay = img_as_ubyte(overlay)
+    return overlay
