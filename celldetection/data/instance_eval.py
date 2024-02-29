@@ -1,6 +1,8 @@
 from itertools import product, chain
+from typing import Union
 from warnings import warn
 import numpy as np
+import torch
 
 
 def get_pos_labels(v):
@@ -258,37 +260,109 @@ class LabelMatcher:
 
 
 class LabelMatcherList(list):
-    """Label Matcher List.
+    def __init__(self, *args, epsilon=1e-12, rank=None, num_ranks=None, device=None, cache=False, **kwargs):
+        """Label Matcher List.
 
-    Simple interface to get averaged results from a list of `LabelMatcher` objects.
+        Simple interface to get averaged results from a list of `LabelMatcher` objects.
 
-    Examples:
-        >>> lml = LabelMatcherList([
-        ...     LabelMatcher(pred_labels_0, target_labels0),
-        ...     LabelMatcher(pred_labels_1, target_labels1),
-        ... ])
-        >>> lml.iou_thresh = 0.5  # set iou_thresh for all LabelMatcher objects
-        >>> print('Average F1 score for iou threshold 0.5:', lml.avg_f1)
-        Average F1 score for iou threshold 0.5: 0.92
+        Note:
+            Distributed use assumes, that each example is shown exactly once. Duplicates are not removed.
+            Check your sampler accordingly. Also make sure that each rank calls the same methods in the same order.
 
-        >>> # Testing different IOU thresholds:
-        >>> for lml.iou_thresh in (.5, .75):
-        ...     print('thresh:', lml.iou_thresh, '\t f1:', lml.avg_f1)
-        thresh: 0.5 	 f1: 0.92
-        thresh: 0.75 	 f1: 0.91
+        Examples:
+            >>> lml = LabelMatcherList([
+            ...     LabelMatcher(pred_labels_0, target_labels0),
+            ...     LabelMatcher(pred_labels_1, target_labels1),
+            ... ])
+            >>> lml.iou_thresh = 0.5  # set iou_thresh for all LabelMatcher objects
+            >>> print('Average F1 score for iou threshold 0.5:', lml.avg_f1)
+            Average F1 score for iou threshold 0.5: 0.92
 
-    """
-    def __init__(self, *args, epsilon=1e-12, **kwargs):
+            >>> # Testing different IOU thresholds:
+            >>> for lml.iou_thresh in (.5, .75):
+            ...     print('thresh:', lml.iou_thresh, '\t f1:', lml.avg_f1)
+            thresh: 0.5 	 f1: 0.92
+            thresh: 0.75 	 f1: 0.91
+
+        Args:
+            *args:
+            epsilon:
+            rank: Rank (e.g. `trainer.global_rank). Allows for distributed communication.
+                If not passed, results will only be computed locally. If passed results are synced across all ranks.
+            num_ranks: Number of ranks (e.g. `trainer.world_size`). Allows for distributed communication.
+                If not passed, results will only be computed locally. If passed results are synced across all ranks.
+            cache: Whether to cache aggregated results. Currently only for distributed environments.
+            **kwargs:
+        """
         super().__init__(*args, **kwargs)
+
         self.epsilon = epsilon
+        if rank is not None or num_ranks is not None:
+            assert None not in (rank, num_ranks), 'Please provide both `ranks` and `num_ranks`.'
+        self.rank = rank
+        self.num_ranks = num_ranks
+        self.device = device
+        self.cache = cache
+        self._cache = {}
+        self._iou_thresh = None
+
+    @property
+    def distributed(self):
+        return self.rank is not None and self.num_ranks is not None and self.num_ranks > 1
+
+    def append(self, __object):
+        self.clear_cache()
+        return super().append(__object)
+
+    def __add__(self, other):
+        self.clear_cache()
+        return super().__add__(other)
+
+    def __iadd__(self, other):
+        self.clear_cache()
+        return super().__iadd__(other)
+
+    def extend(self, __iterable):
+        self.clear_cache()
+        return super().extend(__iterable)
+
+    def clear(self):
+        self.clear_cache()
+        return super().clear()
+
+    def copy(self):
+        self.clear_cache()
+        return super().copy()
+
+    def __setitem__(self, key, value):
+        self.clear_cache()
+        return super().__setitem__(key, value)
+
+    def __delitem__(self, key):
+        self.clear_cache()
+        return super().__delitem__(key)
+
+    def pop(self, *args, **kwargs):
+        self.clear_cache()
+        return super().pop(*args, **kwargs)
+
+    def insert(self, __index, __object):
+        self.clear_cache()
+        return super().insert(__index, __object)
+
+    def clear_cache(self):
+        self._cache = {}
 
     @property
     def iou_thresh(self):
-        """Gets unique IOU thresholds from all items, if there is only one unique threshold, it is returned."""
-        iou_thresholds = np.unique([s.iou_thresh for s in self])
-        if len(iou_thresholds) == 1:
-            iou_thresholds, = iou_thresholds
-        return iou_thresholds
+        """Gets local unique IOU thresholds from all items, if there is only one unique threshold, it is returned."""
+        # todo distributed
+        if super().__len__():
+            iou_thresholds = np.unique([s.iou_thresh for s in self])
+            if len(iou_thresholds) == 1:
+                iou_thresholds, = iou_thresholds
+            return iou_thresholds
+        return self._iou_thresh  # fallback
 
     @iou_thresh.setter
     def iou_thresh(self, v):
@@ -298,14 +372,103 @@ class LabelMatcherList(list):
         The higher the threshold, the closer the inferred objects must be to the targeted objects to be counted as
         true positives.
         """
+        if self.distributed:
+            # Note that the code below is just a fail-save, hence gather is used to reduce cost
+
+            # Convert v to a tensor and move it to the appropriate device
+            v_tensor = torch.tensor([v], device=self.device)
+
+            # Gather all v_tensor values to rank 0
+            gathered_v_tensors = [torch.zeros_like(v_tensor) for _ in range(self.num_ranks)]
+            torch.distributed.gather(v_tensor, gather_list=gathered_v_tensors if self.rank == 0 else None,
+                                     dst=0)
+
+            # On rank 0, check if all values are equal
+            if self.rank == 0 and len(gathered_v_tensors):
+                gathered_v_tensors = torch.concatenate(gathered_v_tensors).ravel()
+                if not torch.allclose(gathered_v_tensors[:1], gathered_v_tensors):
+                    raise ValueError(f"IoU threshold is not equal across all ranks: {gathered_v_tensors}")
+
+        self._cache = {}
+        self._iou_thresh = v  # fallback
         for s in self:
             s.iou_thresh = v
 
-    def _avg_x(self, x):
-        return np.mean([getattr(m, x) for m in self])
+    @property
+    def length(self) -> int:
+        local_count = super().__len__()
+        if self.distributed:
+            if self.cache:
+                res = self._cache.get('length', None)
+                if res is not None:
+                    return res
+            count = torch.tensor([local_count], device=self.device)
 
-    def _sum_x(self, x):
-        return np.sum([getattr(m, x) for m in self])
+            # Perform the sum-reduce operation across all ranks
+            torch.distributed.all_reduce(count, op=torch.distributed.ReduceOp.SUM)
+
+            res = count.item()
+            if self.cache:
+                self._cache['length'] = res
+            return res
+        return local_count
+
+    def _avg_x(self, x) -> float:
+        attributes = [getattr(m, x) for m in self]
+
+        # Handle the case where the attributes list is empty
+        if not attributes:
+            local_sum = 0.
+            local_count = 0.
+        else:
+            local_sum = np.sum(attributes)
+            local_count = len(attributes)
+
+        # Check if the training is distributed
+        if self.distributed:
+
+            if self.cache:
+                res = self._cache.get(f'_avg_{x}', None)
+                if res is not None:
+                    return res
+
+            # Combine local sum and count into a single tensor
+            local_sum_count_tensor = torch.tensor([local_sum, local_count], dtype=torch.float32, device=self.device)
+
+            # Perform a single reduce operation for both sum and count
+            torch.distributed.all_reduce(local_sum_count_tensor, op=torch.distributed.ReduceOp.SUM)  # inplace
+
+            total_sum, total_count = local_sum_count_tensor.tolist()
+            res = total_sum / total_count if total_count != 0 else 0
+            if self.cache:
+                self._cache[f'_avg_{x}'] = res
+            return res
+
+        return local_sum / local_count if local_count != 0 else 0
+
+    def _sum_x(self, x) -> Union[int, float]:
+        # Calculate the local sum
+        local_sum = np.sum([getattr(m, x) for m in self])
+
+        # Check if the training is distributed (world_size > 1)
+        if self.distributed:
+            if self.cache:
+                res = self._cache.get(f'_sum_{x}', None)
+                if res is not None:
+                    return res
+            # Convert the numpy value to a torch tensor and move it to the appropriate device
+            local_sum_tensor = torch.tensor(local_sum, dtype=torch.float32, device=self.device)
+
+            # Perform the sum-reduce operation across all ranks
+            torch.distributed.all_reduce(local_sum_tensor, op=torch.distributed.ReduceOp.SUM)
+
+            res = local_sum_tensor.item()
+            if self.cache:
+                self._cache[f'_sum_{x}'] = res
+            return res
+        else:
+            # If not distributed, return the local sum
+            return local_sum
 
     @property
     def false_positives(self):
