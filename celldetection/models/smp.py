@@ -2,6 +2,7 @@ import segmentation_models_pytorch as smp
 from torch import nn
 from collections import OrderedDict
 from typing import List, Callable
+from pytorch_lightning.core.mixins import HyperparametersMixin
 
 __all__ = ['SmpEncoder']
 
@@ -26,7 +27,7 @@ class ExternBase(nn.Module):
         return self.model_name.title()
 
 
-class SmpEncoder(ExternBase):
+class SmpEncoder(ExternBase, HyperparametersMixin):
     def __init__(self, model_name: str, in_channels: int = 3, depth: int = 5, pretrained=False,
                  output_stride: int = 32, **kwargs):
         """Smp Encoder.
@@ -48,6 +49,7 @@ class SmpEncoder(ExternBase):
         """
         self.check_model_name(model_name, smp.encoders.get_encoder_names)
         super().__init__(model_name)
+        self.save_hyperparameters()
 
         # Map pretrained for consistency
         if pretrained is True:
