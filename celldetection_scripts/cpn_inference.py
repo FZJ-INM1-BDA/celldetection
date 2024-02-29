@@ -1,6 +1,4 @@
 import argparse
-import json
-
 import tifffile
 import torch
 import torch.nn as nn
@@ -17,11 +15,9 @@ import cv2
 from torch.distributed import is_available, all_gather_object, get_world_size, is_initialized, get_rank
 from itertools import chain
 import albumentations.augmentations.functional as F
-from typing import Union
+from typing import Union, List, Optional
 from warnings import warn
 from skimage import img_as_float, img_as_ubyte
-
-
 
 
 def dict_collate_fn(batch, check_padding=True, img_min_ndim=2) -> Union[OrderedDict, None]:
@@ -192,7 +188,7 @@ def preprocess(img, gamma=1., contrast=1., brightness=0., percentile=None):
     return img
 
 
-def resolve_model(model_name, model_parameters):
+def resolve_model(model_name, model_parameters, verbose=True):
     if isinstance(model_name, nn.Module):
         # Is module already
         model = model_name
@@ -204,10 +200,10 @@ def resolve_model(model_name, model_parameters):
             # Lightning checkpoint
             model = cd.models.LitCpn.load_from_checkpoint(model_name, map_location='cpu')
         else:
-            print("LOAD MODEL VIA cd.load_model", model_name, flush=True)
             model = cd.load_model(model_name, map_location='cpu')
     if not isinstance(model, cd.models.LitCpn):
-        print('Wrap model with lightning', end='')
+        if verbose:
+            print('Wrap model with lightning', end='')
         model = cd.models.LitCpn(model)
     model.model.max_imsize = None
     model.eval()
@@ -225,7 +221,8 @@ def resolve_model(model_name, model_parameters):
 def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768, 768), strides=(384, 384), reps=1,
                 transforms=None,
                 batch_size=1, num_workers=0, pin_memory=False, border_removal=6, min_vote=1, stitching_rule='nms',
-                gamma=1., contrast=1., brightness=0., percentile=None, model_parameters=None, **kwargs):
+                gamma=1., contrast=1., brightness=0., percentile=None, model_parameters=None,
+                point_mask_exclusive=False, verbose=True, **kwargs):
     assert len(models) >= 1, 'Please specify at least one model.'
     assert min_vote >= 1, f'Min vote smaller than minimum: {min_vote}'
     assert len(models) >= min_vote, f'Min vote greater than number of models: {min_vote}'
@@ -239,10 +236,12 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
     elif len(strides) == 1:
         strides *= 2
     img = preprocess(img, gamma=gamma, contrast=contrast, brightness=brightness, percentile=percentile)
+    if img.ndim == 2 or (img.ndim == 3 and img.shape[-1] == 1):  # todo: should depend on model
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
     x = img.astype('float32') / 255
 
     tile_loader = TileLoader(x, mask=mask, point_mask=point_mask, crop_size=crop_size, strides=strides, reps=reps,
-                             transforms=transforms)
+                             transforms=transforms, point_mask_exclusive=point_mask_exclusive)
     data_loader = DataLoader(
         tile_loader,
         batch_size=batch_size,
@@ -258,7 +257,7 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
     h_tiles, w_tiles = tile_loader.num_slices_per_axis
     nms_thresh = None
     for model_name in models:
-        model = resolve_model(model_name, model_parameters)
+        model = resolve_model(model_name, model_parameters, verbose=verbose)
         nms_thresh = kwargs.get('nms_thresh', model.model.nms_thresh)
 
         y = trainer.predict(model, data_loader)
@@ -328,8 +327,312 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
     return results
 
 
+def cpn_inference(
+        inputs: Union[str, List[str], 'np.ndarray'],
+        models: Union[str, List[str], 'nn.Module'],
+        outputs: Union[str, List[str]] = 'outputs',
+        inputs_method: str = 'imageio',
+        inputs_dataset: str = 'image',
+        masks: Optional[List[str]] = None,
+        point_masks: Optional[List[str]] = None,
+        point_mask_exclusive: bool = False,
+        masks_dataset: str = 'mask',
+        point_masks_dataset: str = 'point_mask',
+        devices: Union[str, int, List[int]] = 'auto',
+        accelerator: str = 'auto',
+        strategy: str = 'auto',
+        precision: str = '32-true',
+        num_workers: int = 0,
+        prefetch_factor: int = 2,
+        pin_memory: bool = False,
+        batch_size: int = 1,
+        tile_size: Union[int, List[int]] = 1024,
+        stride: Union[int, List[int]] = 768,
+        border_removal: int = 4,
+        stitching_rule: str = 'nms',
+        min_vote: int = 1,
+        labels: bool = False,
+        flat_labels_: bool = False,
+        demo_figure: bool = False,
+        overlay: bool = False,
+        truncated_images: bool = False,
+        properties: Optional[List[str]] = None,
+        spacing: float = 1.0,
+        separator: str = '-',
+        gamma: float = 1.0,
+        contrast: float = 1.0,
+        brightness: float = 0.0,
+        percentile: Optional[List[float]] = None,
+        model_parameters: str = '',
+        verbose: bool = True
+):
+    """
+    Process contour proposals for instance segmentation using specified parameters.
+
+    Args:
+        inputs (list[str]): Inputs. Either filename, name pattern (glob), or URL (leading http:// or https://).
+        models (list[str]): Model. Either filename, name pattern (glob), URL (leading http:// or https://), or hosted model name.
+        outputs (str): Output path. Default is 'outputs'.
+        inputs_method (str): Method used for loading non-hdf5 inputs. Default is 'imageio'.
+        inputs_dataset (str): Dataset name for hdf5 inputs. Default is 'image'.
+        masks (list[str], optional): Masks. Either filename, name pattern (glob), or URL (leading http:// or https://).
+        point_masks (list[str], optional): Point masks. Either filename, name pattern (glob), or URL (leading http:// or https://).
+        point_mask_exclusive (bool): If set, the points in `point_masks` are the only objects to be segmented. Default is False.
+        masks_dataset (str): Dataset name for hdf5 mask inputs. Default is 'mask'.
+        point_masks_dataset (str): Dataset name for hdf5 point mask inputs. Default is 'point_mask'.
+        devices (str): Devices. Specifies the devices for model inference.
+            'auto': Auto-select GPUs, falls back to CPU if GPUs unavailable.
+            Integer: Number of GPUs to use (e.g., 1 for a single GPU).
+            List of Integers: Specific GPU IDs (e.g., [0, 2]).
+            '-1': Use all available GPUs.
+            '0': Use CPU only. Default is 'auto'.
+        accelerator (str): Accelerator. Defines the hardware accelerator for training.
+            'auto': Auto-selects best accelerator (GPU/TPU) based on environment.
+            'gpu': Uses GPU for training (requires CUDA).
+            'tpu': Utilizes Tensor Processing Units.
+            'cpu': Forces use of CPU.
+            'ipu': Uses Graphcore's Intelligence Processing Units. Default is 'auto'.
+        strategy (str): Strategy for distributed execution.
+            'auto': Auto-selects best strategy based on accelerator.
+            'dp': Data Parallel - splits batches across GPUs.
+            'ddp': Distributed Data Parallel - each GPU runs model copy.
+            'ddp2': Like 'ddp' but replicates model on each GPU.
+            'horovod': Utilizes Horovod distributed training framework.
+            'tpu_spawn': For training on TPUs.
+            'ddp_spawn': 'ddp' variant that spawns processes.. Default is 'auto'.
+        precision (str): Precision. One of (64, 64-true, 32, 32-true, 16, 16-mixed, bf16, bf16-mixed). Default is '32-true'.
+        num_workers (int): Number of workers. Default is 0.
+        prefetch_factor (int): Number of batches loaded in advance by each worker. Default is 2.
+        pin_memory (list, optional): If set, the data loader will copy Tensors into device/CUDA pinned memory before returning them.
+        batch_size (int): How many samples per batch to load. Default is 1.
+        tile_size (int): Tile/window size for sliding window processing. Default is 1024.
+        stride (int): Stride for sliding window processing. Default is 768.
+        border_removal (int): Number of border pixels for the removal of partial objects during tiled inference. Default is 4.
+        stitching_rule (str): Stitching rule to use for collating results from sliding window processing. Default is 'nms'.
+        min_vote (int): Required smallest vote count for a detected object to be accepted. Default is 1.
+        labels (bool): Whether to convert contours to label image. Default is False.
+        flat_labels_ (bool): Whether to use labels without channels. Default is False.
+        demo_figure (bool): Whether to write a demo figure to disk. Note: Intended for smaller images! Default is False.
+        overlay (bool): Whether to write transparent label image to disk. This is mainly useful as an overlay for visual inspection. Default is False.
+        truncated_images (bool): Whether to support truncated images. Default is False.
+        properties (list, optional): Region properties.
+        spacing (float): The pixel spacing. Relevant for pixel-based region properties. Default is 1.0.
+        separator (str): Separator string for region properties that are written to multiple columns. Default is '-'.
+        gamma (float): Gamma value for gamma transform. Default is 1.0.
+        contrast (float): Factor for contrast adjustment. Default is 1.0.
+        brightness (float): Factor for brightness adjustment. Default is 0.0.
+        percentile (list[float], optional): Percentile norm. Performs min-max normalization with specified percentiles. Default is None.
+        model_parameters (str): Model parameters. Pass as string in "key=value,key1=value1" format. Default is ''.
+        verbose (bool): Verbosity toggle.
+    """
+
+    args = dict(locals())
+
+    if truncated_images:
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+    def resolve_inputs_(collection, x, tag='inputs'):
+        if isinstance(x, np.ndarray) or x.startswith('http://') or x.startswith('https://') or isfile(x):
+            collection.append(x)
+        else:
+            input_files = sorted(glob(x))
+            assert len(input_files), f'Could not find {tag}: {x}'
+            collection += input_files
+
+    if inputs is not None and not isinstance(inputs, (tuple, list)):
+        inputs = [inputs]
+    if masks is not None and not isinstance(masks, (tuple, list)):
+        masks = [masks]
+    if models is not None and not isinstance(models, (tuple, list)):
+        models = [models]
+
+    # Prepare input args
+    input_list = []
+    mask_list = []
+    point_mask_list = []
+    for idx, i in enumerate(inputs):
+        resolve_inputs_(input_list, i, 'inputs')
+        if masks:
+            resolve_inputs_(mask_list, masks[idx], 'masks')
+            assert len(input_list) == len(mask_list), ('Expecting same number of inputs and masks, but found '
+                                                       f'{len(input_list)} inputs and {len(mask_list)} masks.')
+        else:
+            mask_list = None
+        if point_masks:
+            resolve_inputs_(point_mask_list, point_masks[idx], 'point_masks')
+            assert len(input_list) == len(point_mask_list), ('Expecting same number of inputs and masks, but found '
+                                                             f'{len(input_list)} inputs and {len(point_mask_list)} '
+                                                             f'masks.')
+        else:
+            point_mask_list = None
+
+    # Prepare model args
+    model_list = []
+    for m in models:
+        if isinstance(m, nn.Module):
+            model_list.append(models)
+        else:
+            assert isinstance(m, str)
+            if m.startswith('http://') or m.startswith('https://') or m.startswith('cd://') or (
+                    not isfile(m) and not splitext(m)[1]):
+                # Either URL (leading http(s)) or hosted model (leading cd or just no file extension as a fallback)
+                model_list.append(lambda _m=m, **kwargs: cd.fetch_model(_m, **kwargs))
+            else:
+                files = sorted(glob(m))
+                if len(files) == 0 and sep not in m and '.' not in m:
+                    files = [lambda _m=m, **kwargs: cd.fetch_model(_m, **kwargs)]  # fallback: try cd-hosted
+                assert len(files), f'Could not find models: {m}'
+                model_list += files
+
+    # Prepare model parameters
+    model_parameters = [i.strip().split('=') for i in model_parameters.split(',') if len(i.strip())]
+    model_parameters = {k: v for k, v in model_parameters}
+    if verbose and model_parameters is not None and len(model_parameters):
+        print('Changing the following model parameters:', model_parameters)
+
+    if devices.isnumeric():
+        devices = int(devices)
+
+    if verbose:
+        print('Summary:\n ', '\n  '.join([
+            f'Number of inputs: {len(input_list)}',
+            f'Number of models: {len(model_list)}',
+            f'Output path: {outputs}' + ' (newly created)' * (not isdir(outputs)),
+            f'Workers: {num_workers}',
+            f'Devices: {devices}',
+            f'Strategy: {strategy}',
+        ]))
+
+    # Load model
+    trainer = pl.Trainer(
+        accelerator=accelerator,
+        strategy=strategy,
+        devices=devices,
+        precision=precision
+    )
+
+    makedirs(outputs, exist_ok=True)
+
+    def load_inputs(x, dataset_name, method, tag, idx):
+        if isinstance(x, np.ndarray):
+            dst = join(outputs, f'ndarray_{idx}' + '{ext}')
+            image = x
+        else:
+            prefix, ext = splitext(basename(x))
+            dst = join(outputs, prefix + '{ext}')
+            if x.startswith('http://') or x.startswith('https://'):
+                image = cd.fetch_image(x)
+            elif ext in ('.h5', '.hdf5'):
+                assert inputs_dataset is not None, ('Please specify the dataset name for hdf5 inputs via '
+                                                    f'--{tag}_dataset <name>')
+                if verbose:
+                    print('Read from h5:', dataset_name)
+                try:
+                    image = cd.from_h5(x, dataset_name)
+                except KeyError as e:
+                    print(str(e), f'Please specify the dataset name for hdf5 inputs via --{tag}_dataset <name>')
+                    raise e
+            else:
+                image = cd.load_image(x, method=method)
+        return image, dst
+
+    for src_idx, src in enumerate(input_list):
+        img, dst = load_inputs(src, inputs_dataset, inputs_method, 'inputs', idx=src_idx)
+        if isinstance(src, np.ndarray):
+            inputs_tup = 'ndarray',
+        else:
+            inputs_tup = src,
+        if mask_list is None:
+            mask = None
+        else:
+            mask_src = mask_list[src_idx]
+            inputs_tup += mask_src,
+            mask, _ = load_inputs(mask_src, masks_dataset, inputs_method, 'masks', idx=src_idx)
+        if point_mask_list is None:
+            point_mask = None
+        else:
+            point_mask_src = point_mask_list[src_idx]
+            inputs_tup += point_mask_src,
+            point_mask, _ = load_inputs(point_mask_src, point_masks_dataset, inputs_method, 'masks', idx=src_idx)
+
+        if verbose:
+            print(inputs_tup[0] if len(inputs_tup) == 1 else inputs_tup, '-->', dst.format(ext='.*'), flush=True)
+
+        # Resolve model now if it's just one
+        if len(model_list) == 1:
+            model_list[0] = resolve_model(model_list[0], model_parameters, verbose=verbose)
+
+        y = cd.asnumpy(apply_model(
+            img, model_list, trainer,
+            mask=mask,
+            point_mask=point_mask,
+            crop_size=tile_size,
+            strides=stride,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            prefetch_factor=prefetch_factor,
+            border_removal=border_removal,
+            batch_size=batch_size,
+            min_vote=min_vote,
+            stitching_rule=stitching_rule,
+            gamma=gamma,
+            contrast=contrast,
+            brightness=brightness,
+            percentile=percentile,
+            model_parameters=model_parameters,
+            point_mask_exclusive=point_mask_exclusive,
+            verbose=verbose
+        ))
+
+        is_dist = is_available() and is_initialized()
+        if (is_dist and get_rank() == 0) or not is_dist:
+            props = properties
+            do_props = props is not None and len(props)
+            do_labels = do_props or labels or flat_labels_
+
+            labels_ = flat_labels_ = None
+            if do_labels:
+                labels_ = cd.data.contours2labels(y['contours'], img.shape[:2])
+                if labels:
+                    y['labels'] = labels_
+            if flat_labels_:
+                flat_labels_ = cd.data.resolve_label_channels(labels_)
+                if flat_labels_:
+                    y['flat_labels'] = flat_labels_
+
+            cd.to_h5(dst.format(ext='.h5'), **cd.asnumpy(y),  # json since None values in attrs are not supported
+                     attributes=dict(contours=dict(args=cd.dict_to_json_string(args))))
+            if do_props:  # TODO: Use mask in properties (writing out labels)
+                if flat_labels_:
+                    assert flat_labels_ is not None
+                    cd.data.labels2property_table(flat_labels_, props, spacing=spacing,
+                                                  separator=separator).to_csv(dst.format(ext='_flat.csv'))
+                if labels or not flat_labels_:
+                    assert labels_ is not None
+                    cd.data.labels2property_table(labels_, props, spacing=spacing, separator=separator).to_csv(
+                        dst.format(ext='.csv'))
+
+            if overlay:
+                if do_labels:
+                    assert labels_ is not None or flat_labels_ is not None
+                    label_vis = img_as_ubyte(cd.label_cmap(flat_labels_ if labels_ is None else labels_))
+                else:
+                    label_vis = cd.data.contours2overlay(y['contours'], img.shape[:2])
+                tifffile.imwrite(dst.format(ext='_overlay.tif'), label_vis, compression='ZLIB')
+
+            if demo_figure:
+                from matplotlib import pyplot as plt
+                cd.imshow_row(img, img, figsize=(30, 15), titles=('input', 'contours'))
+                cd.plot_contours(y['contours'])
+                cd.plot_boxes(y['boxes'])
+                loc = cd.asnumpy(y['locations'])
+                plt.scatter(loc[:, 0], loc[:, 1], marker='x')
+                cd.save_fig(dst.format(ext='_demo.png'))
+
+
 def main():
     parser = argparse.ArgumentParser('Contour Proposal Networks for Instance Segmentation')
+
     parser.add_argument('-i', '--inputs', nargs='+', type=str,
                         help='Inputs. Either filename, name pattern (glob), or URL (leading http:// or https://).')
     parser.add_argument('-o', '--outputs', default='outputs', type=str, help='output path')
@@ -365,7 +668,7 @@ def main():
     parser.add_argument('--num_workers', default=0, type=int, help='Number of workers.')
     parser.add_argument('--prefetch_factor', default=2, type=int,
                         help='Number of batches loaded in advance by each worker.')
-    parser.add_argument('--pin_memory', nargs='*',
+    parser.add_argument('--pin_memory', action='store_true',
                         help='If set, the data loader will copy Tensors into device/CUDA '
                              'pinned memory before returning them.')
     parser.add_argument('--batch_size', default=1, type=int, help='How many samples per batch to load.')
@@ -417,181 +720,46 @@ def main():
     assert args.models, ('Please provide models to the script! Example to add celldetection model: '
                          '`--model \'cd://ginoro_CpnResNeXt101UNet-fbe875f1a3e5ce2c\'`')
 
-    if args.truncated_images:
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
-
-    outputs = args.outputs
-
-    def resolve_inputs_(collection, name, tag='inputs'):
-        if name.startswith('http://') or name.startswith('https://') or isfile(name):
-            collection.append(name)
-        else:
-            input_files = sorted(glob(name))
-            assert len(input_files), f'Could not find {tag}: {name}'
-            collection += input_files
-
-    # Prepare input args
-    inputs = []
-    masks = []
-    point_masks = []
-    for idx, i in enumerate(args.inputs):
-        resolve_inputs_(inputs, i, 'inputs')
-        if args.masks:
-            resolve_inputs_(masks, args.masks[idx], 'masks')
-            assert len(inputs) == len(masks), ('Expecting same number of inputs and masks, but found '
-                                               f'{len(inputs)} inputs and {len(masks)} masks.')
-        else:
-            masks = None
-        if args.point_masks:
-            resolve_inputs_(point_masks, args.point_masks[idx], 'point_masks')
-            assert len(inputs) == len(point_masks), ('Expecting same number of inputs and masks, but found '
-                                                     f'{len(inputs)} inputs and {len(point_masks)} masks.')
-        else:
-            point_masks = None
-
-    # Prepare model args
-    models = []
-    for m in args.models:
-        if m.startswith('http://') or m.startswith('https://') or m.startswith('cd://') or (
-                not isfile(m) and not splitext(m)[1]):
-            # Either URL (leading http(s)) or hosted model (leading cd or just no file extension as a fallback)
-            models.append(lambda _m=m, **kwargs: cd.fetch_model(_m, **kwargs))
-        else:
-            files = sorted(glob(m))
-            if len(files) == 0 and sep not in m and '.' not in m:
-                files = [lambda _m=m, **kwargs: cd.fetch_model(_m, **kwargs)]  # fallback: try cd-hosted
-            assert len(files), f'Could not find models: {m}'
-            models += files
-
-    # Prepare model parameters
-    model_parameters = [i.strip().split('=') for i in args.model_parameters.split(',') if len(i.strip())]
-    model_parameters = {k: v for k, v in model_parameters}
-    if model_parameters is not None and len(model_parameters):
-        print('Changing the following model parameters:', model_parameters)
-
-    devices = args.devices
-    if devices.isnumeric():
-        devices = int()
-
-    print('Args:', args, f'\nUnknown args: {unknown}' * bool(len(unknown)))
-    print('Summary:\n ', '\n  '.join([
-        f'Number of inputs: {len(inputs)}',
-        f'Number of models: {len(models)}',
-        f'Output path: {outputs}' + ' (newly created)' * (not isdir(outputs)),
-        f'Workers: {args.num_workers}',
-        f'Devices: {devices}',
-        f'Strategy: {args.strategy}',
-    ]))
-
-    # Load model
-    trainer = pl.Trainer(
+    cpn_inference(
+        inputs=args.inputs,
+        models=args.models,
+        outputs=args.outputs,
+        inputs_method=args.inputs_method,
+        inputs_dataset=args.inputs_dataset,
+        masks=args.masks,
+        point_masks=args.point_masks,
+        point_mask_exclusive=args.point_mask_exclusive,
+        masks_dataset=args.masks_dataset,
+        point_masks_dataset=args.point_masks_dataset,
+        devices=args.devices,
         accelerator=args.accelerator,
         strategy=args.strategy,
-        devices=args.devices,
-        precision=args.precision
+        precision=args.precision,
+        num_workers=args.num_workers,
+        prefetch_factor=args.prefetch_factor,
+        pin_memory=args.pin_memory,
+        batch_size=args.batch_size,
+        tile_size=args.tile_size,
+        stride=args.stride,
+        border_removal=args.border_removal,
+        stitching_rule=args.stitching_rule,
+        min_vote=args.min_vote,
+        labels=args.labels,
+        flat_labels_=args.flat_labels,
+        demo_figure=args.demo_figure,
+        overlay=args.overlay,
+        truncated_images=args.truncated_images,
+        properties=args.properties,
+        spacing=args.spacing,
+        separator=args.separator,
+        gamma=args.gamma,
+        contrast=args.contrast,
+        brightness=args.brightness,
+        percentile=args.percentile,
+        model_parameters=args.model_parameters
     )
 
-    makedirs(outputs, exist_ok=True)
-
-    def load_inputs(name, dataset_name, method, tag):
-        prefix, ext = splitext(basename(name))
-        dst = join(outputs, prefix + '{ext}')
-        if name.startswith('http://') or name.startswith('https://'):
-            image = cd.fetch_image(name)
-        elif ext in ('.h5', '.hdf5'):
-            assert args.inputs_dataset is not None, ('Please specify the dataset name for hdf5 inputs via '
-                                                     f'--{tag}_dataset <name>')
-            print('Read from h5:', dataset_name)
-            try:
-                image = cd.from_h5(name, dataset_name)
-            except KeyError as e:
-                print(str(e), f'Please specify the dataset name for hdf5 inputs via --{tag}_dataset <name>')
-                raise e
-        else:
-            image = cd.load_image(name, method=method)
-        return image, dst
-
-    for src_idx, src in enumerate(inputs):
-        img, dst = load_inputs(src, args.inputs_dataset, args.inputs_method, 'inputs')
-        inputs_tup = src,
-        if masks is None:
-            mask = None
-        else:
-            mask_src = masks[src_idx]
-            inputs_tup += mask_src,
-            mask, _ = load_inputs(mask_src, args.masks_dataset, args.inputs_method, 'masks')
-        if point_masks is None:
-            point_mask = None
-        else:
-            point_mask_src = point_masks[src_idx]
-            inputs_tup += point_mask_src,
-            point_mask, _ = load_inputs(point_mask_src, args.point_masks_dataset, args.inputs_method, 'masks')
-
-        print(inputs_tup[0] if len(inputs_tup) == 1 else inputs_tup, '-->', dst.format(ext='.*'), flush=True)
-
-        if len(models) == 1:
-            models[0] = resolve_model(models[0], model_parameters)
-
-        y = cd.asnumpy(apply_model(
-            img, models, trainer,
-            mask=mask,
-            point_mask=point_mask,
-            crop_size=args.tile_size,
-            strides=args.stride,
-            num_workers=args.num_workers,
-            pin_memory=args.pin_memory,
-            prefetch_factor=args.prefetch_factor,
-            border_removal=args.border_removal,
-            min_vote=args.min_vote,
-            stitching_rule=args.stitching_rule,
-            gamma=args.gamma,
-            contrast=args.contrast,
-            brightness=args.brightness,
-            percentile=args.percentile,
-            model_parameters=model_parameters
-        ))
-        is_dist = is_available() and is_initialized()
-        if (is_dist and get_rank() == 0) or not is_dist:
-            props = args.properties
-            do_props = props is not None and len(props)
-            do_labels = do_props or args.labels or args.flat_labels or args.overlay
-
-            labels = flat_labels = None
-            if do_labels:
-                labels = cd.data.contours2labels(y['contours'], img.shape[:2])
-                if args.labels:
-                    y['labels'] = labels
-            if args.flat_labels:
-                flat_labels = cd.data.resolve_label_channels(labels)
-                if args.flat_labels:
-                    y['flat_labels'] = flat_labels
-            cd.to_h5(dst.format(ext='.h5'), **cd.asnumpy(y),  # json since None values in attrs are not supported
-                     attributes=dict(contours=dict(args=json.dumps(vars(args)))))
-            if do_props:  # TODO: Maybe use mask in properties (writing out labels)
-                if args.flat_labels:
-                    assert flat_labels is not None
-                    cd.data.labels2property_table(flat_labels, props, spacing=args.spacing,
-                                                  separator=args.separator).to_csv(dst.format(ext='_flat.csv'))
-                if args.labels or not args.flat_labels:
-                    assert labels is not None
-                    cd.data.labels2property_table(labels, props, spacing=args.spacing, separator=args.separator).to_csv(
-                        dst.format(ext='.csv'))
-
-            if args.overlay:
-                assert labels is not None or flat_labels is not None
-                label_vis = img_as_ubyte(cd.label_cmap(flat_labels if labels is None else labels))
-                tifffile.imwrite(dst.format(ext='_overlay.tif'), label_vis, compression='ZLIB')
-
-            if args.demo_figure:
-                from matplotlib import pyplot as plt
-                cd.imshow_row(img, img, figsize=(30, 15), titles=('input', 'contours'))
-                cd.plot_contours(y['contours'])
-                cd.plot_boxes(y['boxes'])
-                loc = cd.asnumpy(y['locations'])
-                plt.scatter(loc[:, 0], loc[:, 1], marker='x')
-                cd.save_fig(dst.format(ext='_demo.png'))
-
-    if get_rank() == 0:  # because why not
+    if not (is_available() and is_initialized()) or get_rank() == 0:  # because why not
         cd.say_goodbye()
 
 

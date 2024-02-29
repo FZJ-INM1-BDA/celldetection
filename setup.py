@@ -23,7 +23,7 @@ setup(
     url=m['__url__'],
     packages=['celldetection', 'celldetection.data', 'celldetection.callbacks', 'celldetection.optim',
               'celldetection.data.datasets', 'celldetection.models', 'celldetection.mpi', 'celldetection.ops',
-              'celldetection.util', 'celldetection.visualization'],
+              'celldetection.util', 'celldetection.visualization', 'celldetection_scripts'],
     package_data={'': ['LICENSE', 'requirements.txt', 'README.md']},
     include_package_data=True,
     install_requires=requirements,
@@ -38,8 +38,8 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'cd-inference-cpn=scripts.cpn_inference:main',
-            # 'cd-train=scripts.train:main'
-        ]
+            'cd-inference-cpn=celldetection_scripts.cpn_inference:main',
+            # 'cd-train=celldetection_scripts.train:main'
+         ]
     }
 )
