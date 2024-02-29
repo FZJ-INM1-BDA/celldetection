@@ -11,7 +11,7 @@ import traceback
 __all__ = ['to_tensor', 'transpose_spatial', 'universal_dict_collate_fn', 'normalize_percentile', 'random_crop',
            'channels_last2channels_first', 'channels_first2channels_last', 'ensure_tensor', 'rgb_to_scalar',
            'padding_stack', 'labels2crops', 'labels2properties', 'rle2mask', 'resample_contours',
-           'labels2property_table', 'pad_to_size', 'pad_to_div', 'regionprops2d']
+           'labels2property_table', 'pad_to_size', 'pad_to_div', 'regionprops2d', 'split']
 
 
 def transpose_spatial(inputs: np.ndarray, inputs_channels_last=True, spatial_dims=2, has_batch=False):
@@ -484,3 +484,58 @@ def regionprops2d(
                                      extra_properties=extra_properties,
                                      spacing=spacing, offset=offset):
             yield p
+
+
+def split(n: int, *splits, shuffle=True, seed=None):
+    """Split.
+
+    Splits a range of indices into multiple sets based on the given fractions.
+
+    Args:
+        n: The total number of indices.
+        *splits: Variable length list of floats representing the fraction of the dataset for each split.
+        shuffle: Whether to shuffle the indices before splitting.
+        seed: Seed for the random number generator.
+
+    Returns:
+        Split indices.
+    """
+    if sum(splits) != 1:
+        raise ValueError("The sum of splits must be equal to 1.")
+
+    indices = np.arange(n)
+
+    if shuffle:
+        if seed is not None:
+            np.random.seed(seed)
+        np.random.shuffle(indices)
+
+    split_indices = []
+    start = 0
+    for i, sp in enumerate(splits):
+        end = n if (i == len(splits) - 1) else start + int(round(n * sp))
+        split_indices.append(indices[start:end])
+        start = end
+
+    assert sum([len(i) for i in split_indices]) == n
+    assert np.unique(np.concatenate(split_indices)).size == n
+
+    return split_indices
+
+
+def pad_arrays(arrays):
+    if not arrays:
+        return []
+
+    # Finding the maximum shape
+    max_shape = np.max([np.array(a.shape) for a in arrays], axis=0)
+
+    # Padding each array
+    padded_arrays = []
+    for a in arrays:
+        # Calculate the padding needed for each dimension
+        padding = [(0, max_s - s) for s, max_s in zip(a.shape, max_shape)]
+        padded_a = np.pad(a, padding, mode='constant')
+        padded_arrays.append(padded_a)
+
+    return padded_arrays
