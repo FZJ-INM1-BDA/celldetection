@@ -19,7 +19,7 @@ from collections import OrderedDict
 import re
 import sys
 from itertools import product
-from inspect import currentframe
+from inspect import currentframe, signature
 from shutil import copy2
 from PIL import Image
 from io import BytesIO
@@ -1853,3 +1853,42 @@ def resolve_pretrained(pretrained, state_dict_mapper=None, **kwargs):
                          'Please specify a URL or filename using the `pretrained` argument.')
     return state_dict
 
+
+def is_package_installed(name) -> bool:
+    """Is package installed.
+
+    Checks if package called `name` is installed by attempting to retrieve its version via `importlib.metadata.version`.
+
+    Args:
+        name: Package name.
+
+    Returns:
+        Bool.
+    """
+    import importlib.metadata
+    try:
+        importlib.metadata.version(name)
+        return True
+    except importlib.metadata.PackageNotFoundError:
+        return False
+
+
+def has_argument(fn, *args, mode='any'):
+    sig = signature(fn)
+    gen = ((a in sig.parameters) for a in args)
+    if mode == 'any':
+        return any(gen)
+    elif mode == 'all':
+        return all(gen)
+    raise ValueError(f'Unknown mode: {mode}')
+
+
+def dict_to_json_string(input_dict):
+    serializable_dict = {}
+    for k, v in input_dict.items():
+        try:
+            json.dumps(v)
+            serializable_dict[k] = v
+        except TypeError:
+            pass  # skip
+    return json.dumps(serializable_dict)
