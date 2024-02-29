@@ -39,7 +39,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'image_to_base64', 'base64_to_image', 'model2dict', 'dict2model', 'is_ipython', 'grouped_glob',
            'tweak_attribute_', 'to_batched_h5', 'compare_file_hashes', 'import_file', 'load_imagej_rois',
            'glob_h5_split', 'say_goodbye', 'parse_url_params', 'save_requirements', 'get_installed_packages',
-           'resolve_model', 'is_package_installed', 'has_argument', 'dict_to_json_string']
+           'resolve_model', 'is_package_installed', 'has_argument', 'dict_to_json_string', 'resolve_pretrained']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
