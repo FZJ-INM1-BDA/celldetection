@@ -10,7 +10,7 @@ seaborn
 tqdm
 h5py
 pillow
-pynvml>=11.0.0
+nvidia-ml-py
 albumentations>=1.3.0
 timm
 segmentation-models-pytorch

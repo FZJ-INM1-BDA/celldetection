@@ -1047,26 +1047,72 @@ class GpuStats:
     def __len__(self):
         return self.num
 
+    @staticmethod
+    def _is_mig_enabled(h):
+        # https://docs.nvidia.com/deploy/nvml-api/group__nvmlMultiInstanceGPU.html#group__nvmlMultiInstanceGPU_1g1fa0acf9076404ef28c3c6976eb96f2b
+        try:
+            mode, pending_mode = nv.nvmlDeviceGetMigMode(h)
+            is_mig_enabled = mode == nv.NVML_DEVICE_MIG_ENABLE
+        except nv.NVMLError:  # if device doesn't support MIG mode
+            is_mig_enabled = False
+        return is_mig_enabled
+
+    @staticmethod
+    def _get_mig_info(h, idx):
+        # https://docs.nvidia.com/deploy/nvml-api/group__nvmlMultiInstanceGPU.html#group__nvmlMultiInstanceGPU_1g15e07cc6230a2d90c5bc85de85261ef7
+        mig_device_count = nv.nvmlDeviceGetMaxMigDeviceCount(h)
+        mig_infos = []
+        for i in range(mig_device_count):
+            try:
+                # Get MIG device handle for the given index under its parent NVML device
+                mig_h = nv.nvmlDeviceGetMigDeviceHandleByIndex(h, i)
+
+                # Per-instance information can be queried by using specific MIG device handles
+                mem = nv.nvmlDeviceGetMemoryInfo(mig_h)
+
+                # Utilization rates are not available for MIG devices
+                # https://docs.nvidia.com/deploy/nvml-api/group__nvmlDeviceQueries.html#group__nvmlDeviceQueries_1g540824faa6cef45500e0d1dc2f50b321
+
+                mig_infos.append((f'{idx}-{i}', {
+                    'free': Bytes(mem.free),
+                    'used': Bytes(mem.used)
+                }))
+            except nv.NVMLError:
+                continue
+        return mig_infos
+
+    @staticmethod
+    def _get_nonmig_info(h, idx):
+        info = None
+        try:
+            mem = nv.nvmlDeviceGetMemoryInfo(h)
+            uti = nv.nvmlDeviceGetUtilizationRates(h)
+            info = idx, dict(
+                free=Bytes(mem.free),
+                used=Bytes(mem.used),
+                util=Percent(uti.gpu)
+            )
+        except nv.NVMLError:
+            pass
+        return info
+
     def __getitem__(self, item: int):
         if item >= len(self):
             raise IndexError
         h = nv.nvmlDeviceGetHandleByIndex(item)
         idx = nv.nvmlDeviceGetIndex(h)
-        mem = nv.nvmlDeviceGetMemoryInfo(h)
-        uti = nv.nvmlDeviceGetUtilizationRates(h)
-        return idx, dict(
-            free=Bytes(mem.free),
-            used=Bytes(mem.used),
-            util=Percent(uti.gpu)
-        )
+        return (self._get_mig_info if self._is_mig_enabled(h) else self._get_nonmig_info)(h, idx)
 
     def dict(self, byte_lvl=3, prefix='gpu'):
         d = {}
-        for i, stat in self:
-            for k, v in stat.items():
-                if isinstance(v, Bytes):
-                    v = np.round(float(v) / (2 ** (10 * byte_lvl)), 2)
-                d[f'{prefix}{i}-{k}'] = float(v)
+        for r in self:
+            if not isinstance(r, list):
+                r = [r]  # wrap non-mig info
+            for i, stat in r:
+                for k, v in stat.items():
+                    if isinstance(v, Bytes):
+                        v = np.round(float(v) / (2 ** (10 * byte_lvl)), 2)
+                    d[f'{prefix}{i}-{k}'] = float(v)
         return d
 
     def __str__(self):
