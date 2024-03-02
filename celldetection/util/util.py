@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 import inspect
 import copy
@@ -1077,13 +1078,13 @@ class GpuStats:
                     'free': Bytes(mem.free),
                     'used': Bytes(mem.used)
                 }))
-            except nv.NVMLError:
-                continue
+            except nv.NVMLError as e:
+                warnings.warn(str(e))
         return mig_infos
 
     @staticmethod
     def _get_nonmig_info(h, idx):
-        info = None
+        info = idx, None
         try:
             mem = nv.nvmlDeviceGetMemoryInfo(h)
             uti = nv.nvmlDeviceGetUtilizationRates(h)
@@ -1092,8 +1093,8 @@ class GpuStats:
                 used=Bytes(mem.used),
                 util=Percent(uti.gpu)
             )
-        except nv.NVMLError:
-            pass
+        except nv.NVMLError as e:
+            warnings.warn(str(e))
         return info
 
     def __getitem__(self, item: int):
@@ -1106,18 +1107,21 @@ class GpuStats:
     def dict(self, byte_lvl=3, prefix='gpu'):
         d = {}
         for r in self:
-            if not isinstance(r, list):
-                r = [r]  # wrap non-mig info
-            for i, stat in r:
-                for k, v in stat.items():
-                    if isinstance(v, Bytes):
-                        v = np.round(float(v) / (2 ** (10 * byte_lvl)), 2)
-                    d[f'{prefix}{i}-{k}'] = float(v)
+            for i, stat in (r if isinstance(r, list) else [r]):
+                if stat is not None:
+                    for k, v in stat.items():
+                        if isinstance(v, Bytes):
+                            v = np.round(float(v) / (2 ** (10 * byte_lvl)), 2)
+                        d[f'{prefix}{i}-{k}'] = float(v)
         return d
 
     def __str__(self):
-        deli = self.delimiter
-        return deli.join([f'gpu{i}({deli.join([f"{k}: {v}" for k, v in stat.items()])})' for i, stat in self])
+        s = []
+        for r in self:
+            for i, stat in (r if isinstance(r, list) else [r]):
+                if stat is not None:
+                    s.append(f'gpu{i}({self.delimiter.join([f"{k}: {v}" for k, v in stat.items()])})')
+        return self.delimiter.join(s)
 
     __repr__ = __str__
 
