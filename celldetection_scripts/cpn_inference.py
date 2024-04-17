@@ -40,7 +40,7 @@ def dict_collate_fn(batch, check_padding=True, img_min_ndim=2) -> Union[OrderedD
                 results[k] = cd.data.padding_stack(*items, axis=0)
             else:
                 if isinstance(items[0], torch.Tensor):
-                    results[k] = torch.stack(items, axis=0)
+                    results[k] = torch.stack(items, dim=0)
                 else:
                     results[k] = np.stack(items, axis=0)
             if image_like:
@@ -364,7 +364,8 @@ def cpn_inference(
         brightness: float = 0.0,
         percentile: Optional[List[float]] = None,
         model_parameters: str = '',
-        verbose: bool = True
+        verbose: bool = True,
+        skip_existing: bool = False
 ):
     """
     Process contour proposals for instance segmentation using specified parameters.
@@ -424,6 +425,7 @@ def cpn_inference(
         percentile (list[float], optional): Percentile norm. Performs min-max normalization with specified percentiles. Default is None.
         model_parameters (str): Model parameters. Pass as string in "key=value,key1=value1" format. Default is ''.
         verbose (bool): Verbosity toggle.
+        skip_existing(bool): Whether to inputs with existing output files.
     """
 
     args = dict(locals())
@@ -470,7 +472,7 @@ def cpn_inference(
     model_list = []
     for m in models:
         if isinstance(m, nn.Module):
-            model_list.append(models)
+            model_list.append(m)
         else:
             assert isinstance(m, str)
             if m.startswith('http://') or m.startswith('https://') or m.startswith('cd://') or (
@@ -490,7 +492,7 @@ def cpn_inference(
     if verbose and model_parameters is not None and len(model_parameters):
         print('Changing the following model parameters:', model_parameters)
 
-    if devices.isnumeric():
+    if isinstance(devices, str) and devices.isnumeric():
         devices = int(devices)
 
     if verbose:
@@ -513,13 +515,18 @@ def cpn_inference(
 
     makedirs(outputs, exist_ok=True)
 
-    def load_inputs(x, dataset_name, method, tag, idx):
+    def load_inputs(x, dataset_name, method, tag, idx, ext_checks=('.h5',)):
         if isinstance(x, np.ndarray):
             dst = join(outputs, f'ndarray_{idx}' + '{ext}')
             image = x
         else:
             prefix, ext = splitext(basename(x))
             dst = join(outputs, prefix + '{ext}')
+
+            if skip_existing:
+                if any(isfile(dst.format(ext=ext)) for ext in ext_checks):
+                    raise FileExistsError
+
             if x.startswith('http://') or x.startswith('https://'):
                 image = cd.fetch_image(x)
             elif ext in ('.h5', '.hdf5'):
@@ -536,8 +543,16 @@ def cpn_inference(
                 image = cd.load_image(x, method=method)
         return image, dst
 
+    output_list = []
     for src_idx, src in enumerate(input_list):
-        img, dst = load_inputs(src, inputs_dataset, inputs_method, 'inputs', idx=src_idx)
+        try:
+            img, dst = load_inputs(src, inputs_dataset, inputs_method, 'inputs', idx=src_idx)
+        except FileExistsError:
+            if verbose:
+                print('Skipping input, because output exists already:', src)
+            continue
+        dst_h5 = dst.format(ext='.h5')
+
         if isinstance(src, np.ndarray):
             inputs_tup = 'ndarray',
         else:
@@ -585,6 +600,9 @@ def cpn_inference(
         ))
 
         is_dist = is_available() and is_initialized()
+        output = cd.asnumpy(y)
+        output_list.append(output)
+        out_files = dict()
         if (is_dist and get_rank() == 0) or not is_dist:
             props = properties
             do_props = props is not None and len(props)
@@ -594,23 +612,29 @@ def cpn_inference(
             if do_labels:
                 labels_ = cd.data.contours2labels(y['contours'], img.shape[:2])
                 if labels:
-                    y['labels'] = labels_
+                    y['labels'] = output['labels'] = labels_
             if flat_labels_:
                 flat_labels_ = cd.data.resolve_label_channels(labels_)
                 if flat_labels_:
-                    y['flat_labels'] = flat_labels_
+                    y['flat_labels'] = output['flat_labels'] = flat_labels_
 
-            cd.to_h5(dst.format(ext='.h5'), **cd.asnumpy(y),  # json since None values in attrs are not supported
+            out_files['h5'] = dst_h5
+            cd.to_h5(dst_h5, **output,  # json since None values in attrs are not supported
                      attributes=dict(contours=dict(args=cd.dict_to_json_string(args))))
             if do_props:  # TODO: Use mask in properties (writing out labels)
                 if flat_labels_:
                     assert flat_labels_ is not None
-                    cd.data.labels2property_table(flat_labels_, props, spacing=spacing,
-                                                  separator=separator).to_csv(dst.format(ext='_flat.csv'))
+                    tab = cd.data.labels2property_table(flat_labels_, props, spacing=spacing,
+                                                        separator=separator)
+                    output['properties_flat'] = tab
+                    out_files['properties_flat'] = dst_flat_csv = dst.format(ext='_flat.csv')
+                    tab.to_csv(dst_flat_csv)
                 if labels or not flat_labels_:
                     assert labels_ is not None
-                    cd.data.labels2property_table(labels_, props, spacing=spacing, separator=separator).to_csv(
-                        dst.format(ext='.csv'))
+                    tab = cd.data.labels2property_table(labels_, props, spacing=spacing, separator=separator)
+                    output['properties'] = tab
+                    out_files['properties'] = dst_csv = dst.format(ext='.csv')
+                    tab.to_csv(dst_csv)
 
             if overlay:
                 if do_labels:
@@ -618,7 +642,10 @@ def cpn_inference(
                     label_vis = img_as_ubyte(cd.label_cmap(flat_labels_ if labels_ is None else labels_))
                 else:
                     label_vis = cd.data.contours2overlay(y['contours'], img.shape[:2])
-                tifffile.imwrite(dst.format(ext='_overlay.tif'), label_vis, compression='ZLIB')
+                dst_ove_tif = dst.format(ext='_overlay.tif')
+                tifffile.imwrite(dst_ove_tif, label_vis, compression='ZLIB')
+                output['overlay'] = label_vis
+                out_files['overlay'] = dst_ove_tif
 
             if demo_figure:
                 from matplotlib import pyplot as plt
@@ -627,28 +654,40 @@ def cpn_inference(
                 cd.plot_boxes(y['boxes'])
                 loc = cd.asnumpy(y['locations'])
                 plt.scatter(loc[:, 0], loc[:, 1], marker='x')
-                cd.save_fig(dst.format(ext='_demo.png'))
+                out_files['demo_figure'] = dst_demo = dst.format(ext='_demo.png')
+                cd.save_fig(dst_demo)
+        if len(out_files):
+            output['files'] = out_files
+    return output_list
 
 
 def main():
+    from inspect import signature
+
+    par = signature(cpn_inference).parameters
+
+    def d(name):
+        return par[name].default
+
     parser = argparse.ArgumentParser('Contour Proposal Networks for Instance Segmentation')
 
     parser.add_argument('-i', '--inputs', nargs='+', type=str,
                         help='Inputs. Either filename, name pattern (glob), or URL (leading http:// or https://).')
     parser.add_argument('-o', '--outputs', default='outputs', type=str, help='output path')
-    parser.add_argument('--inputs_method', default='imageio',
+    parser.add_argument('--inputs_method', default=d('inputs_method'),
                         help='Method used for loading non-hdf5 inputs.')
-    parser.add_argument('--inputs_dataset', default='image', help='Dataset name for hdf5 inputs.')
+    parser.add_argument('--inputs_dataset', default=d('inputs_dataset'),
+                        help='Dataset name for hdf5 inputs.')
     parser.add_argument('-m', '--models', nargs='+',
                         help='Model. Either filename, name pattern (glob), URL (leading http:// or https://), or '
                              'hosted model name (leading cd://). '
                              'Example: `--model \'cd://ginoro_CpnResNeXt101UNet-fbe875f1a3e5ce2c\'`')
-    parser.add_argument('--masks', default=None, nargs='+', type=str,
+    parser.add_argument('--masks', default=d('masks'), nargs='+', type=str,
                         help='Masks. Either filename, name pattern (glob), or URL (leading http:// or https://). '
                              'A mask determines where the model searches for objects. Regions with values <= 0'
                              'are ignored. Hence, objects will only be found where the mask is positive. '
                              'Masks are linked to inputs by order. If masks are used, all inputs must have one.')
-    parser.add_argument('--point_masks', default=None, nargs='+', type=str,
+    parser.add_argument('--point_masks', default=d('point_masks'), nargs='+', type=str,
                         help='Point masks. Either filename, name pattern (glob), or URL (leading http:// or https://). '
                              'A point mask is a mask image with positive values at an object`s location. '
                              'The model aims to convert points to contours. '
@@ -658,30 +697,30 @@ def main():
                              'Otherwise (default), the points in `point_masks` are considered non-exclusive, meaning '
                              'other objects are detected and segmented in addition. '
                              'Note that this option overrides `masks`.')
-    parser.add_argument('--masks_dataset', default='mask', help='Dataset name for hdf5 inputs.')
-    parser.add_argument('--point_masks_dataset', default='point_mask', help='Dataset name for hdf5 inputs.')
-    parser.add_argument('--devices', default='auto', type=str, help='Devices.')
-    parser.add_argument('--accelerator', default='auto', type=str, help='Accelerator.')
-    parser.add_argument('--strategy', default='auto', type=str, help='Strategy.')
+    parser.add_argument('--masks_dataset', default=d('masks_dataset'), help='Dataset name for hdf5 inputs.')
+    parser.add_argument('--point_masks_dataset', default=d('point_masks_dataset'), help='Dataset name for hdf5 inputs.')
+    parser.add_argument('--devices', default=d('devices'), type=str, help='Devices.')
+    parser.add_argument('--accelerator', default=d('accelerator'), type=str, help='Accelerator.')
+    parser.add_argument('--strategy', default=d('strategy'), type=str, help='Strategy.')
     parser.add_argument('--precision', default='32-true', type=str,
                         help='Precision. One of (64, 64-true, 32, 32-true, 16, 16-mixed, bf16, bf16-mixed)')
-    parser.add_argument('--num_workers', default=0, type=int, help='Number of workers.')
-    parser.add_argument('--prefetch_factor', default=2, type=int,
+    parser.add_argument('--num_workers', default=d('num_workers'), type=int, help='Number of workers.')
+    parser.add_argument('--prefetch_factor', default=d('prefetch_factor'), type=int,
                         help='Number of batches loaded in advance by each worker.')
     parser.add_argument('--pin_memory', action='store_true',
                         help='If set, the data loader will copy Tensors into device/CUDA '
                              'pinned memory before returning them.')
-    parser.add_argument('--batch_size', default=1, type=int, help='How many samples per batch to load.')
-    parser.add_argument('--tile_size', default=1024, nargs='+', type=int,
+    parser.add_argument('--batch_size', default=d('batch_size'), type=int, help='How many samples per batch to load.')
+    parser.add_argument('--tile_size', default=d('tile_size'), nargs='+', type=int,
                         help='Tile/window size for sliding window processing.')
-    parser.add_argument('--stride', default=768, nargs='+', type=int,
+    parser.add_argument('--stride', default=d('stride'), nargs='+', type=int,
                         help='Stride for sliding window processing.')
-    parser.add_argument('--border_removal', default=4, type=int,
+    parser.add_argument('--border_removal', default=d('border_removal'), type=int,
                         help='Number of border pixels for the removal of '
                              'partial objects during tiled inference.')
-    parser.add_argument('--stitching_rule', default='nms', type=str,
+    parser.add_argument('--stitching_rule', default=d('stitching_rule'), type=str,
                         help='Stitching rule to use for collating results from sliding window processing.')
-    parser.add_argument('--min_vote', default=1, type=int,
+    parser.add_argument('--min_vote', default=d('min_vote'), type=int,
                         help='Required smallest vote count for a detected object to be accepted. '
                              'Only used for ensembles. Minimum vote count is 1, maximum the number of '
                              'models that are part of the ensemble.')
@@ -697,21 +736,23 @@ def main():
     parser.add_argument('--truncated_images', action='store_true',
                         help='Whether to support truncated images.')
     parser.add_argument('-p', '--properties', nargs='*', help='Region properties')
-    parser.add_argument('--spacing', default=1., type=float,
+    parser.add_argument('--spacing', default=d('spacing'), type=float,
                         help='The pixel spacing. Relevant for pixel-based region properties.')
-    parser.add_argument('--separator', default='-', type=str,
+    parser.add_argument('--separator', default=d('separator'), type=str,
                         help='Separator string for region properties that are written to multiple columns. '
                              'Default is "-" as in bbox-0, bbox-1, bbox-2, bbox-4.')
 
-    parser.add_argument('--gamma', default=1., type=float, help='Gamma value for gamma transform.')
-    parser.add_argument('--contrast', default=1., type=float, help='Factor for contrast adjustment.')
-    parser.add_argument('--brightness', default=0., type=float, help='Factor for brightness adjustment.')
-    parser.add_argument('--percentile', default=None, nargs='+', type=float,
+    parser.add_argument('--gamma', default=d('gamma'), type=float, help='Gamma value for gamma transform.')
+    parser.add_argument('--contrast', default=d('contrast'), type=float, help='Factor for contrast adjustment.')
+    parser.add_argument('--brightness', default=d('brightness'), type=float, help='Factor for brightness adjustment.')
+    parser.add_argument('--percentile', default=d('percentile'), nargs='+', type=float,
                         help='Percentile norm. Performs min-max normalization with specified percentiles.'
                              'Specify either two values `(min, max)` or just `max` interpreted as '
                              '(1 - max, max).')
-    parser.add_argument('--model_parameters', default='', type=str,
+    parser.add_argument('--model_parameters', default=d('model_parameters'), type=str,
                         help='Model parameters. Pass as string in "key=value,key1=value1" format')
+    parser.add_argument('--skip_existing', action='store_true',
+                        help='Whether to skip existing files. ')
 
     args, unknown = parser.parse_known_args()
 
@@ -756,7 +797,8 @@ def main():
         contrast=args.contrast,
         brightness=args.brightness,
         percentile=args.percentile,
-        model_parameters=args.model_parameters
+        model_parameters=args.model_parameters,
+        skip_existing=args.skip_existing
     )
 
     if not (is_available() and is_initialized()) or get_rank() == 0:  # because why not
