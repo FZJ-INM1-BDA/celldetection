@@ -20,6 +20,6 @@ from .mamba import *
 from .manet import *
 from .smp import *
 from .timmodels import *
-from .lightning import LitCpn
+from .lightning_cpn import *
 
 from ..util.util import NormProxy
