@@ -1,5 +1,6 @@
 import torch
 from typing import Any, Dict, List, Union, Sequence
+import pytorch_lightning as pl
 from ..util.util import asnumpy, get_tiling_slices
 from torch import Tensor, nn
 from collections import OrderedDict
