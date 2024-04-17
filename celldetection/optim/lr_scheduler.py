@@ -1,9 +1,13 @@
-from torch.optim.lr_scheduler import MultiplicativeLR
+from torch.optim.lr_scheduler import MultiplicativeLR, SequentialLR as _SequentialLR, \
+    ReduceLROnPlateau as _ReduceLROnPlateau
 from torch.optim import Optimizer
 from typing import Union, Callable, List
 import warnings
+from bisect import bisect_right
 
-__all__ = ['WarmUp']
+from ..util.util import has_argument
+
+__all__ = ['WarmUp', 'SequentialLR', 'ReduceLROnPlateau']
 
 
 def linear_schedule(step, steps):
@@ -68,3 +72,82 @@ class WarmUp(MultiplicativeLR):
         if self.last_epoch <= self.steps:
             return [lr * lmbda(self.last_epoch, self.steps) for lmbda, lr in zip(self.lr_lambdas, self.base_lrs)]
         return [group['lr'] for group in self.optimizer.param_groups]
+
+
+class SequentialLR(_SequentialLR):
+
+    def step(self, metrics=None):  # fixes TypeError caused by use of metric
+        self.last_epoch += 1
+        idx = bisect_right(self._milestones, self.last_epoch)
+        scheduler = self._schedulers[idx]
+        if idx > 0 and self._milestones[idx - 1] == self.last_epoch:
+            scheduler.step(0)
+        else:
+
+            if metrics is None:
+                scheduler.step()
+            else:
+                # Some schedulers require metrics, others do not. If not handled here, it'll raise a TypeError
+                if has_argument(scheduler.step, 'metric', 'metrics', mode='any'):
+                    scheduler.step(metrics)
+                else:
+                    scheduler.step()
+
+        self._last_lr = scheduler.get_last_lr()
+
+
+class ReduceLROnPlateau(_ReduceLROnPlateau):
+    def __init__(self, optimizer, mode='min', factor=0.1, patience=10,
+                 threshold=1e-4, threshold_mode='rel', cooldown=0,
+                 min_lr=0, eps=1e-8, warmup=1, verbose="deprecated"):
+        """
+        Initializes the ReduceLROnPlateau object. This scheduler decreases the learning rate
+        when a metric has stopped improving, which is commonly used to fine-tune a model in
+        machine learning.
+
+        Notes:
+            - Adds the warmup option to PyTorch's ``ReduceLROnPlateau``.
+
+        Args:
+            optimizer (Optimizer): Wrapped optimizer.
+            mode (str): One of `min` or `max`. In `min` mode, the learning rate will be reduced
+                        when the quantity monitored has stopped decreasing; in `max` mode, it will
+                        be reduced when the quantity monitored has stopped increasing. Default: 'min'.
+            factor (float): Factor by which the learning rate will be reduced. `new_lr = lr * factor`.
+                            Default: 0.1.
+            patience (int): Number of epochs with no improvement after which learning rate will be
+                            reduced. Default: 10.
+            threshold (float): Threshold for measuring the new optimum, to only focus on significant
+                               changes. Default: 1e-4.
+            threshold_mode (str): One of `rel`, `abs`. In `rel` mode, dynamic_threshold = best * (1 + threshold)
+                                  in 'max' mode or best * (1 - threshold) in `min` mode. In `abs` mode,
+                                  dynamic_threshold = best + threshold in `max` mode or best - threshold in
+                                  `min` mode. Default: 'rel'.
+            cooldown (int): Number of epochs to wait before resuming normal operation after lr has been reduced.
+                            Default: 0.
+            min_lr (float or list): A scalar or a list of scalars. A lower bound on the learning rate of
+                                    all param groups or each group respectively. Default: 0.
+            eps (float): Minimal decay applied to lr. If the difference between new and old lr is smaller
+                         than eps, the update is ignored. Default: 1e-8.
+            warmup (int): Number of epochs to wait before initially starting normal operation. Default: 1.
+            verbose (str): Deprecated argument. Not used. Default: "deprecated".
+        """
+        super().__init__(optimizer=optimizer, mode=mode, factor=factor, patience=patience,
+                         threshold=threshold, threshold_mode=threshold_mode, cooldown=cooldown,
+                         min_lr=min_lr, eps=eps, verbose=verbose)
+        self.warmup_counter = int(warmup)  # ignores bad epochs for the first number of `warmup` steps
+
+    def get_last_lr(self):  # required by PyTorch functions to be implemented right here
+        return self._last_lr
+
+    def step(self, metrics, epoch=None):
+        best_ = None
+        if self.warmup_counter:
+            self.warmup_counter -= 1
+            best_ = self.best
+
+        res = super().step(metrics, epoch)
+        if best_ is not None:
+            self.best = best_
+            self.num_bad_epochs = 0  # ignore any bad epochs in warmup
+        return res
