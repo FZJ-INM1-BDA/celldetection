@@ -334,40 +334,98 @@ apptainer pull --dir . --disable-cache docker://ericup/celldetection:latest
 
 Find us on Hugging Face and upload your own images for segmentation: https://huggingface.co/spaces/ericup/celldetection
 
+There's also an API (Python & JavaScript), allowing you to utilize community GPUs (currently Nvidia A100) remotely!
+
 <details>
     <summary style="font-weight: bold; color: #888888">Hugging Face API</summary>
 
 ### Python
 
 ```python
-import requests
+from gradio_client import Client
 
-response = requests.post("https://ericup-celldetection.hf.space/run/predict", json={
-    "data": [
-        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==",
-        "ginoro_CpnResNeXt101UNet-fbe875f1a3e5ce2c",
-    ]
-}).json()
+# Define inputs (local filename or URL)
+inputs = 'https://raw.githubusercontent.com/scikit-image/scikit-image/main/skimage/data/coins.png'
 
-data = response["data"]
+# Set up client
+client = Client("ericup/celldetection")
+
+# Predict
+overlay_filename, img_filename, h5_filename, csv_filename = client.predict(
+    inputs,  # str: Local filepath or URL of your input image
+    
+    # Model name
+    'ginoro_CpnResNeXt101UNet-fbe875f1a3e5ce2c',
+    
+    # Custom Score Threshold (numeric value between 0 and 1)
+    False, .9,  # bool: Whether to use custom setting; float: Custom setting
+    
+    # Custom NMS Threshold
+    False, .3142,  # bool: Whether to use custom setting; float: Custom setting
+    
+    # Custom Number of Sample Points
+    False, 128,  # bool: Whether to use custom setting; int: Custom setting
+    
+    # Overlapping objects
+    True,  # bool: Whether to allow overlapping objects
+    
+    # API name (keep as is)
+    api_name="/predict"
+)
+
+
+# Example usage: Code below only shows how to use the results
+from matplotlib import pyplot as plt
+import celldetection as cd
+import pandas as pd
+
+# Read results from local temporary files
+img = imread(img_filename)
+overlay = imread(overlay_filename)  # random colors per instance; transparent overlap
+properties = pd.read_csv(csv_filename)
+contours, scores, label_image = cd.from_h5(h5_filename, 'contours', 'scores', 'labels')
+
+# Optionally display overlay
+cd.imshow_row(img, img, figsize=(16, 9))
+cd.imshow(overlay)
+plt.show()
+
+# Optionally display contours with text
+cd.imshow_row(img, img, figsize=(16, 9))
+cd.plot_contours(contours, texts=['score: %d%%\narea: %d' % s for s in zip((scores * 100).round(), properties.area)])
+plt.show()
 ```
 
 ### Javascript
 
 ```javascript
-const response = await fetch("https://ericup-celldetection.hf.space/run/predict", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-        data: [
-            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==",
-            "ginoro_CpnResNeXt101UNet-fbe875f1a3e5ce2c",
-        ]
-    })
-});
+import { client } from "@gradio/client";
 
-const data = await response.json();
-
+const response_0 = await fetch("https://raw.githubusercontent.com/scikit-image/scikit-image/main/skimage/data/coins.png");
+const exampleImage = await response_0.blob();
+						
+const app = await client("ericup/celldetection");
+const result = await app.predict("/predict", [
+    exampleImage,  // blob: Your input image
+    
+    // Model name (hosted model or URL)
+    "ginoro_CpnResNeXt101UNet-fbe875f1a3e5ce2c",
+    
+    // Custom Score Threshold (numeric value between 0 and 1)
+    false, .9,  // bool: Whether to use custom setting; float: Custom setting
+    
+    // Custom NMS Threshold
+    false, .3142,  // bool: Whether to use custom setting; float: Custom setting
+    
+    // Custom Number of Sample Points
+    false, 128,  // bool: Whether to use custom setting; int: Custom setting
+    
+    // Overlapping objects
+    true,  // bool: Whether to allow overlapping objects
+    
+    // API name (keep as is)
+    api_name="/predict"
+]);
 ```
 
 </details>
