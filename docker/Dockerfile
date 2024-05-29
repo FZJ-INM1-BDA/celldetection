@@ -16,7 +16,7 @@ COPY ./requirements.txt ./
 COPY ./MANIFEST.in ./
 COPY ./README.md ./
 COPY ./LICENSE ./
-COPY ./scripts/*.py ./
+COPY ./celldetection_scripts/*.py ./
 
 RUN pip install imagecodecs; exit 0  # optional due to unresolved issues on ARM
 RUN pip install .
