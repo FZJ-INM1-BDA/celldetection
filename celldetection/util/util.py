@@ -4,7 +4,6 @@ import inspect
 import copy
 import torch
 import torch.nn as nn
-import torch.nn.init as init
 from typing import Union, List, Tuple, Any, Dict as TDict, Iterator, Type, Callable, Iterable, Sequence
 from torch import Tensor
 from torch.hub import load_state_dict_from_url
@@ -40,7 +39,10 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'image_to_base64', 'base64_to_image', 'model2dict', 'dict2model', 'is_ipython', 'grouped_glob',
            'tweak_attribute_', 'to_batched_h5', 'compare_file_hashes', 'import_file', 'load_imagej_rois',
            'glob_h5_split', 'say_goodbye', 'parse_url_params', 'save_requirements', 'get_installed_packages',
-           'resolve_model', 'is_package_installed', 'has_argument', 'dict_to_json_string', 'resolve_pretrained']
+           'resolve_model', 'is_package_installed', 'has_argument', 'dict_to_json_string', 'resolve_pretrained',
+           'OomCatcher', 'get_random_states', 'save_random_states', 'load_random_states', 'is_picklable', 'get_dtype',
+           'calculate_padding', 'from_yaml', 'to_yaml', 'enable_cudnn_benchmark', 'get_num_nodes',
+           'is_from_installed_package', 'load_txt']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
@@ -366,19 +368,94 @@ def asnumpy(v):
         raise ValueError(f'Type not supported: {type(v)}')
 
 
-def dict2model(conf, **kwargs):
-    from .. import models
+def dict2model(conf, updated_kwargs=True, src=None, **kwargs):
+    """Dict to model.
+
+    Examples:
+        ```python
+        dict(
+            model='LitCpn',  # can also be named lightning_model
+            args=tuple(...),
+            kwargs=dict(...),
+            updated_kwargs=dict(...),
+            freeze=list(...),
+            attributes=dict(...),
+            tweak=dict(BatchNorm2d=dict(momentum=0.05),
+        )
+        ```
+
+    Notes:
+        - If ``lightning_model`` exists in config, ``model`` is ignored.
+
+    Args:
+        conf:
+        updated_kwargs:
+        src:
+        **kwargs:
+
+    Returns:
+
+    """
+    if src is None:
+        from .. import models as src
 
     if len(conf) == 1:  # alternative format: {'class_name': kwargs}
         key, = conf.keys()
-        if key != 'model':
-            m = getattr(models, key, None)
+        if key != 'model' and key != 'lightning_model':
+            m = getattr(src, key, None)
             if m is not None:
                 return m(**conf[key])
 
     # Format: {'model': class_name, 'kwargs': kwargs}
-    kw = {**conf.get('kwargs', conf.get('kw', {})), **kwargs}
-    m = getattr(models, conf['model'])(*conf.get('args', conf.get('a', ())), **kw)
+    kw = conf.get('kwargs', conf.get('kw', {}))
+    if updated_kwargs:
+        kw = {**kw, **conf.get('updated_kwargs', {})}
+    kw = {**kw, **kwargs}
+    name = conf.get('lightning_model', conf.get('model'))
+    assert name is not None, 'Config should define either ``lightning_model`` or ``model``.'
+    args = conf.get('args', conf.get('a', ()))
+
+    # Name as filename
+    if isfile(name):
+        if args is not None and len(args) > 0:
+            warnings.warn(f'Args are not supported when loading model files and currently ignored: {args}')
+        m = load_model(name, **kw)  # does not handle args
+
+    # Name as class name
+    elif name in dir(src):
+        m = getattr(src, name)(*args, **kw)
+
+    # Fallback: Name as hosted model
+    else:
+        m = fetch_model(name, **kw)
+
+    # Maybe tweak model attributes
+    model_attributes = conf.get('attributes', conf.get('tweak_attributes'))
+    if model_attributes:
+        print('Changing model attributes:', model_attributes)
+        tweak_attribute_(m, **model_attributes)
+
+    # Tweak
+    model_tweaks = conf.get('tweak', conf.get('tweak_modules'))
+    if model_tweaks:
+        print('Changing module attributes:', model_tweaks)
+        assert isinstance(model_tweaks, dict)
+        for k, v in model_tweaks.items():
+            assert isinstance(v, dict), ('Please provide module tweaks in this format: '
+                                         'Dict[str (module class), Dict[str (attribute name), any (attribute value)]]')
+            tweak_module_(m, k, **v)
+
+    # Freeze
+    model_freeze = conf.get('freeze', None)
+    if isinstance(model_freeze, str):
+        model_freeze = [model_freeze]
+    assert model_freeze is None or isinstance(model_freeze, list), f'`freeze` should be a string or list, but ' \
+                                                                   f'found {type(model_freeze)}. ' \
+                                                                   f'Please check your config.'
+    if model_freeze is not None and len(model_freeze):
+        print('Freezing submodules:', model_freeze)
+        freeze_submodules_(m, *model_freeze)
+
     return m
 
 
@@ -411,13 +488,15 @@ def fetch_model(name, map_location=None, **kwargs):
         **kwargs: From the doc of `torch.models.utils.load_state_dict_from_url`.
 
     """
+    from ..models.hosted import HOSTED_MODELS, HOST_TEMPLATE
     load_state_dict_kwargs = kwargs.pop('load_state_dict_kwargs', {})
     if name.startswith('cd://'):
         name = name[len('cd://'):]
+    name = HOSTED_MODELS.get(name, name)
     if not name.startswith('http'):
         if splitext(name)[1] not in ('.pt', '.pth', 'ckpt'):
             name = name + '.pt'
-        url = f'https://celldetection.org/torch/models/{name}'
+        url = HOST_TEMPLATE.format(name=name)
         load_state_dict_kwargs['check_hash'] = load_state_dict_kwargs.get('check_hash', True)
     else:
         url = name
@@ -444,9 +523,20 @@ def append_hash_to_filename(filename, num=None, ext=True):
 
 
 def model2dict(model: 'nn.Module'):
+    kwargs = dict(model.hparams)
+    updated_kwargs = dict()
+    for k, v in kwargs.items():
+        if k in model.__dict__:
+            cv = model.__dict__[k]
+            r = v != cv
+            if hasattr(r, 'any'):
+                r = r.any()
+            if r:
+                updated_kwargs[k] = cv
     return dict(
         model=model.__class__.__name__,
-        kwargs=dict(model.hparams),
+        kwargs=kwargs,
+        updated_kwargs=updated_kwargs,
     )
 
 
@@ -555,6 +645,14 @@ def fetch_image(url, numpy=True):
     return np.asarray(img) if numpy else img
 
 
+def load_txt(filename, strip=True):
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    if strip:
+        lines = list(map(str.strip, lines))
+    return lines
+
+
 def load_image(name, method='imageio') -> np.ndarray:
     """Load image.
 
@@ -572,6 +670,18 @@ def load_image(name, method='imageio') -> np.ndarray:
     elif method == 'imageio':
         from imageio import imread
         img = imread(name)
+    elif method == 'imageio2':
+        from imageio.v2 import imread
+        img = imread(name)
+    elif method == 'imageio3':
+        from imageio.v3 import imread
+        img = imread(name)
+    elif method == 'pil':
+        from PIL import Image
+        img = Image.open(name)
+        img = np.asarray(img)
+        if img.dtype == bool:
+            img = img.astype(np.uint8)
     elif method == 'pytiff':
         from pytiff import Tiff
         with Tiff(name, 'r') as t:
@@ -667,7 +777,10 @@ def train_epoch(model, train_loader, device, optimizer, desc=None, scaler=None, 
 
 def iter_submodules(module: nn.Module, class_or_tuple, recursive=True):
     for k, mod in module._modules.items():
-        if isinstance(mod, class_or_tuple):
+        if isinstance(class_or_tuple, str):
+            if class_or_tuple.lower() == mod.__class__.__name__.lower():
+                yield module._modules, k, mod
+        elif isinstance(mod, class_or_tuple):
             yield module._modules, k, mod
         if isinstance(mod, nn.Module) and recursive:
             yield from iter_submodules(mod, class_or_tuple, recursive=recursive)
@@ -700,13 +813,15 @@ def tweak_module_(module: nn.Module, class_or_tuple, must_exist=True, recursive=
             setattr(mod, k, v)
 
 
-def tweak_attribute_(module: nn.Module, require_existence=True, **kwargs):
+def tweak_attribute_(module: nn.Module, require_existence=True, build_new=False, **kwargs):
     """Tweak attribute.
 
     Allows to change attributes of a module.
 
     Args:
         module: Module.
+        require_existence: Whether to require attributes to exist.
+        build_new: Whether to build new instances when assigning attributes.
         **kwargs: Key value pairs. Keys specify the attribute (e.g. `submodule.attribute_name`) and value
             the respective new value.
 
@@ -718,6 +833,8 @@ def tweak_attribute_(module: nn.Module, require_existence=True, **kwargs):
             x = getattr(x, k_)
         if require_existence:
             assert hasattr(x, sp[-1]), f'Could not find {sp[-1]} attribute in {x}.'
+        if build_new:
+            v = type(getattr(x, sp[-1]))(v)
         setattr(x, sp[-1], v)
 
 
@@ -883,6 +1000,27 @@ def get_device(module: Union[nn.Module, Tensor, torch.device]):
         return module.device
     p: nn.parameter.Parameter = next(module.parameters())
     return p.device
+
+
+def get_dtype(module: Union[nn.Module, Tensor, torch.dtype]):
+    """Get dtype.
+
+    Get dtype from Module.
+
+    Args:
+        module: Module. If ``module`` is a string or ``torch.dtype`` already, it is returned as is.
+
+    Returns:
+        DType.
+    """
+    if isinstance(module, torch.dtype):
+        return module
+    elif isinstance(module, str):
+        return module
+    elif hasattr(module, 'dtype'):
+        return module.dtype
+    p: nn.parameter.Parameter = next(module.parameters())
+    return p.dtype
 
 
 def _params(module: nn.Module, trainable=None, recurse=True) -> Iterator[nn.Parameter]:
@@ -1260,7 +1398,8 @@ def to_h5(filename, mode='w', chunks=None, compression=None, overwrite=False, dr
 
 
 def to_batched_h5(filename, index, batch_size=256, mode='a', chunks=None, compression=None, overwrite=False,
-                  driver=None, create_dataset_kw: dict = None, file_digits=6, item_digits=6, **kwargs):
+                  driver=None, create_dataset_kw: dict = None, file_digits=6, item_digits=6, attributes: dict = None,
+                  **kwargs):
     """To batched hdf5 file.
 
     Write data to batched hdf5 file.
@@ -1290,6 +1429,8 @@ def to_batched_h5(filename, index, batch_size=256, mode='a', chunks=None, compre
         create_dataset_kw: Additional keyword arguments for ``h5py.File().create_dataset``.
         file_digits: Number of digits to display batch index.
         item_digits: Number of digits to display item index.
+        attributes: Attributes. Format: `dict(dataset_name=dict(attribute0=value0))`.
+            Note that only specific attributes are supported by h5py (e.g. not None).
         **kwargs: Data as ``{dataset_name: data}``.
 
     """
@@ -1298,6 +1439,8 @@ def to_batched_h5(filename, index, batch_size=256, mode='a', chunks=None, compre
     pre, ext = splitext(filename)
     if isinstance(chunks, dict):
         chunks = {f'{k}_%0{item_digits}d' % item_id: v for k, v in chunks.items()}
+    if attributes is not None:
+        attributes = {f'{k}_%0{item_digits}d' % item_id: v for k, v in attributes.items()}
     to_h5(
         filename=f'{pre}_%0{file_digits}d{ext}' % batch_id,
         mode=mode,
@@ -1306,11 +1449,12 @@ def to_batched_h5(filename, index, batch_size=256, mode='a', chunks=None, compre
         overwrite=overwrite,
         driver=driver,
         create_dataset_kw=create_dataset_kw,
+        attributes=attributes,
         **{f'{k}_%0{item_digits}d' % item_id: v for k, v in kwargs.items()}
     )
 
 
-def from_h5(filename, *keys, file_kwargs=None, **keys_slices):
+def from_h5(filename, *keys, file_kwargs=None, driver=None, return_attrs=False, **keys_slices):
     """From h5.
 
     Reads data from hdf5 file.
@@ -1319,17 +1463,26 @@ def from_h5(filename, *keys, file_kwargs=None, **keys_slices):
         filename: Filename.
         *keys: Keys to read.
         file_kwargs: File keyword arguments.
+        driver: Hdf5 driver.
+        return_attrs: Whether to return dataset attributes.
         **keys_slices: Keys with indices or slices. E.g. `from_h5('file.h5', 'key0', key=slice(0, 42))`.
 
     Returns:
         Data from hdf5 file. As tuple if multiple keys are provided.
     """
+    if driver is not None:
+        file_kwargs['driver'] = driver
+    attrs = None
     with h5py.File(filename, 'r', **(file_kwargs or {})) as h:
         if len(keys) == 0 and len(keys_slices) == 0:
             print('Available keys:', list(h.keys()), flush=True)
         res = tuple(h[k][:] for k in keys) + tuple(h[k][v] for k, v in keys_slices.items())
+        if return_attrs:
+            attrs = tuple(dict(h[k].attrs) for k in keys) + tuple(dict(h[k].attrs) for k, v in keys_slices.items())
     if len(res) == 1:
         res, = res
+    if return_attrs:
+        return res, attrs
     return res
 
 
@@ -1391,6 +1544,49 @@ def exponential_moving_average_(module_avg, module, alpha=.999, alpha_non_traina
     if buffers:
         for avg, new in zip(module_avg.buffers(), module.buffers()):
             avg.copy_(new)
+
+
+def to_yaml(filename, obj, mode='w', **kwargs):
+    """
+    Writes a given object to a YAML file.
+
+    This function takes an object and writes it to a YAML file. The file mode and any additional
+    parameters for the YAML dump can be specified.
+
+    Args:
+        filename (str): The name of the file to which the object is written.
+        obj (object): The object that will be written to the file.
+        mode (str, optional): The mode in which the file is opened. Defaults to 'w'.
+        **kwargs: Arbitrary keyword arguments that are passed to yaml.dump().
+
+    Raises:
+        IOError: If the file cannot be opened.
+        YAMLError: If there is an error in formatting during the YAML dump.
+    """
+    import yaml
+    with open(filename, mode) as file:
+        yaml.dump(obj, file, **kwargs)
+
+
+def from_yaml(filename):
+    """
+    Reads a YAML file and returns the corresponding Python object.
+
+    This function opens a YAML file, reads its contents, and converts it into a Python object.
+
+    Args:
+        filename (str): The name of the file to be read.
+
+    Returns:
+        object: The Python object obtained from the YAML file content.
+
+    Raises:
+        IOError: If the file cannot be opened.
+        YAMLError: If there is an error in parsing the YAML content.
+    """
+    import yaml
+    with open(filename, 'r') as file:
+        return yaml.safe_load(file)
 
 
 def to_json(filename, obj, mode='w'):
@@ -1519,25 +1715,45 @@ def unfreeze_(module: "nn.Module", recurse=True):
     module.train()
 
 
-def freeze_submodules_(module: "nn.Module", *names, recurse=True):
+def _call_with_submodules(callback, module: "nn.Module", *names, allow_patterns=True, **kwargs):
+    assert len(names), 'Specify at least one submodule by name.'
+    if len(names) == 1 and isinstance(names[0], (tuple, list)):
+        names, = names
+    if allow_patterns:
+        import fnmatch
+        for n in names:
+            count = 0
+            for k, mo in module.named_modules():
+                s = k + '.' * bool(len(k)) + str(mo.__class__.__name__)
+                if fnmatch.fnmatch(s, n) or fnmatch.fnmatch(k, n):
+                    callback(mo, **kwargs)
+                    count += 1
+            if count <= 0:
+                raise AttributeError(f'Could not find match for `{n}`')
+    else:
+        for n in names:
+            mo = module.get_submodule(n)
+            callback(mo, **kwargs)
+
+
+def freeze_submodules_(module: "nn.Module", *names, recurse=True, allow_patterns=True):
     """Freeze specific submodules.
 
     Freezes submodules by setting `param.requires_grad=False` and calling `submodule.eval()`.
 
     Args:
         module: Module.
-        names: Names of submodules.
+        names: Names or name patterns (Unix shell-style wildcards) of submodules.
+            E.g. `['submod0.submod1.conv1']` to freeze `conv1` layer or `['submod0.submod1.Conv2d']` to freeze all
+            objects in `submod0.submod1` of type `Conv2d`.
         recurse: Whether to freeze parameters of specified modules and their respective submodules or only parameters
             that are direct members of the specified submodules.
+        allow_patterns: Whether to allow name patterns.
     """
-    assert len(names), 'Specify at least one submodule by name.'
-    if len(names) == 1 and isinstance(names[0], (tuple, list)):
-        names, = names
-    for n in names:
-        freeze_(module.get_submodule(n), recurse=recurse)
+    _call_with_submodules(freeze_, module, *names, recurse=recurse, allow_patterns=allow_patterns)
 
 
-def unfreeze_submodules_(module: "nn.Module", *names, recurse=True):
+def unfreeze_submodules_(module: "nn.Module", *names, recurse=True, allow_patterns=True):
     """Unfreeze specific submodules.
 
     Unfreezes submodules by setting `param.requires_grad=True` and calling `submodule.train()`.
@@ -1547,12 +1763,9 @@ def unfreeze_submodules_(module: "nn.Module", *names, recurse=True):
         names: Names of submodules.
         recurse: Whether to unfreeze parameters of specified modules and their respective submodules or only parameters
             that are direct members of the specified submodules.
+        allow_patterns: Whether to allow name patterns.
     """
-    assert len(names), 'Specify at least one submodule by name.'
-    if len(names) == 1 and isinstance(names[0], (tuple, list)):
-        names, = names
-    for n in names:
-        unfreeze_(module.get_submodule(n), recurse=recurse)
+    _call_with_submodules(unfreeze_, module, *names, recurse=recurse, allow_patterns=allow_patterns)
 
 
 def image_to_base64(img: 'np.ndarray', ext='png', as_url=True, url_template=None):
@@ -1592,6 +1805,8 @@ def base64_to_image(code, as_numpy=True):
     Returns:
         Image.
     """
+    if ',' in code:
+        code = code.split(',')[1]  # remove header if it exists
     base64_decoded = b64decode(code)
     img = Image.open(BytesIO(base64_decoded))
     if as_numpy:
@@ -1942,3 +2157,244 @@ def dict_to_json_string(input_dict):
         except TypeError:
             pass  # skip
     return json.dumps(serializable_dict)
+
+
+class OomCatcher:
+    def __init__(self, attempts=10, callback=None, *args, **kwargs):
+        """OutOfMemoryError Catcher.
+
+        Examples:
+            >>> oom = cd.OomCatcher()
+            ... while oom:  # reiterates on OOM
+            ...     with oom:  # catches OOM
+            ...         ...  # do something
+
+        Args:
+            attempts: Number of attempts
+            callback: Callback that is called when OOM is detected.
+        """
+        self.attempt = 0
+        self.attempts = attempts
+        self.done = False
+        self.callback = callback
+        self.args = args
+        self.kwargs = kwargs
+
+    def on_oom(self):
+        if self.callback is not None:
+            self.callback(*self.args, **self.kwargs)
+        torch.cuda.empty_cache()
+
+    def __bool__(self):
+        return not self.done
+
+    def __enter__(self):
+        self.done = False
+        return self
+
+    def __exit__(self, exc, value, traceback):
+        if not exc:
+            self.done = True
+            return True
+        self.attempt += 1
+        if (self.attempt >= self.attempts) or exc != torch.cuda.OutOfMemoryError:
+            return False
+        self.on_oom()
+        return True
+
+
+def get_random_states():
+    import random
+    return {
+        'torch_random_state': torch.get_rng_state(),
+        'cuda_random_state': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        'numpy_random_state': np.random.get_state(),
+        'python_random_state': random.getstate(),
+    }
+
+
+def save_random_states(save_path: str, global_rank: int = 0, states: dict = None):
+    """Save Random States.
+
+    Saves the training state for reproducibility in PyTorch Lightning distributed training.
+
+    This function saves the states of PyTorch's and NumPy's random number generators, and
+    Python's random state. The function is designed for distributed environments, with each process saving
+    its own state.
+
+    Args:
+        save_path (str): Directory where the states will be saved.
+        global_rank (int): The global rank of the current process in distributed environments.
+        states (dict): Random states as dict.
+    """
+    import pickle
+    import os
+
+    if not os.path.exists(save_path):
+        makedirs(save_path, exist_ok=True)
+
+    state_file = join(save_path, f'random_state_rank_{global_rank}.pt')
+
+    if states is None:
+        states = get_random_states()
+
+    with open(state_file, 'wb') as f:
+        pickle.dump(states, f)
+
+    print(f"Saved random states for rank {global_rank} to '{state_file}'.")
+
+
+def load_random_states(path: str, global_rank: int = 0):
+    """Load Random States.
+
+    Loads and applies a saved training state for a PyTorch Lightning module.
+
+    This function loads a saved state including PyTorch's and NumPy's random number generators, and
+    Python's random state, and then applies these states to ensure reproducibility.
+
+    If a process cannot find its state file (e.g. because the world size is different), no Exceptions are raised,
+    states are not changed, and a notification is printed.
+
+    Args:
+        path (str): Path to the directory or file containing the saved states.
+        global_rank (int): The global rank of the current process in distributed environments.
+    """
+    import random
+    import pickle
+
+    if isfile(path):
+        state_file = path
+    else:
+        state_file = join(path, f'random_state_rank_{global_rank}.pt')
+
+    if isfile(state_file):
+        with open(state_file, 'rb') as f:
+            state = pickle.load(f)
+
+        if 'torch_random_state' in state:
+            torch.set_rng_state(state['torch_random_state'])
+        if 'cuda_random_state' in state and state['cuda_random_state'] is not None and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all(state['cuda_random_state'])
+        if 'numpy_random_state' in state:
+            np.random.set_state(state['numpy_random_state'])
+        if 'python_random_state' in state:
+            random.setstate(state['python_random_state'])
+
+        print(f"Loaded and applied random states from '{state_file}'.")
+    else:
+        print(f"Could not load random states ({state_file}). Current states remain.")
+
+
+def is_picklable(obj):
+    """Is picklable.
+
+    Checks if the given object can be pickled.
+
+    Args:
+        obj: The object to be tested for picklability.
+
+    Returns:
+        bool.
+    """
+    import pickle
+    try:
+        pickle.dumps(obj)
+        return True
+    except (pickle.PicklingError, TypeError):
+        return False
+
+
+def calculate_padding(input_size, kernel_size, stride, dilation, padding_mode='same'):
+    """
+    Calculates the padding based on the specified mode.
+
+    Args:
+        input_size (int): Size of the input (height or width).
+        kernel_size (int): Size of the convolving kernel.
+        stride (int): Stride of the convolution.
+        dilation (int): Spacing between kernel elements.
+        padding_mode (str): Type of padding. Supported modes: 'same', 'valid'. Default: 'same'
+
+    Returns:
+        int: Padding value.
+
+    Raises:
+        ValueError: If an unsupported padding mode is provided.
+    """
+
+    if padding_mode == 'same':
+        # Padding that keeps output size the same as input size
+        return ((input_size - 1) * (stride - 1) + dilation * (kernel_size - 1)) // 2
+    elif padding_mode == 'valid':
+        # No padding
+        return 0
+    else:
+        raise ValueError(f"Unsupported padding mode: {padding_mode}. Supported modes are 'same' and 'valid'.")
+
+
+def enable_cudnn_benchmark(verbose=True):
+    """Enable cuDNN benchmark mode.
+
+    Enable cuDNN benchmark mode if CUDA and cuDNN are available.
+    This setting can improve performance when input sizes do not change.
+
+    Args:
+        verbose: Verbosity.
+
+    Returns:
+
+    """
+    if torch.cuda.is_available() and torch.backends.cudnn.enabled:
+        torch.backends.cudnn.benchmark = True
+        if verbose:
+            print("cuDNN benchmark enabled for performance optimization.")
+    elif verbose:
+        print("CUDA/cuDNN not available, benchmark not enabled.")
+
+
+def get_num_nodes(default=1, warn=True) -> int:
+    """Get number of nodes.
+
+    Tries to retrieve the number of nodes via ``SLURM_JOB_NUM_NODES`` or ``cd.mpi.get_num_nodes``.
+
+    Args:
+        default: Default setting for number of nodes (as fallback).
+        warn: Whether to warn if default setting is used.
+
+    Returns:
+        Number of nodes.
+    """
+    from os import environ
+    from ..mpi.mpi import get_num_nodes as mpi_get_num_nodes, has_mpi
+    if 'SLURM_JOB_NUM_NODES' in environ:
+        num_nodes = int(environ['SLURM_JOB_NUM_NODES'])
+    elif has_mpi():
+        num_nodes = mpi_get_num_nodes()
+    else:
+        num_nodes = default
+        if warn:
+            warnings.warn(f'Could not resolve number of nodes. Falling back to num_nodes={num_nodes}. '
+                          f'If that is not correct, please try to set it explicitly.')
+    return num_nodes
+
+
+def is_from_installed_package(obj, context: list = None) -> bool:
+    """Is from installed package.
+
+    Checks whether object is of a class from an installed package or not (e.g. local imports).
+
+    Notes:
+        - Checks whether module path starts with site-packages directory or one of the paths in `context`.
+
+    Args:
+        obj: Object.
+        context: Optional list of additional paths to search for the package. Default includes `site-packages`.
+
+    Returns:
+        True if object class is from an installed package, False otherwise.
+    """
+    obj_module_name = obj.__class__.__module__  # get module name
+    obj_module = sys.modules[obj_module_name]  # get module
+    module_path = getattr(obj_module, '__file__', '')  # get path
+    paths = [p for p in sys.path if p.endswith('site-packages')] + list(context or [])  # site-packages and context
+    return any(module_path.startswith(path) for path in paths)
