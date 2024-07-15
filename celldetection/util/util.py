@@ -42,7 +42,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'resolve_model', 'is_package_installed', 'has_argument', 'dict_to_json_string', 'resolve_pretrained',
            'OomCatcher', 'get_random_states', 'save_random_states', 'load_random_states', 'is_picklable', 'get_dtype',
            'calculate_padding', 'from_yaml', 'to_yaml', 'enable_cudnn_benchmark', 'get_num_nodes',
-           'is_from_installed_package', 'load_txt']
+           'is_from_installed_package', 'load_txt', 'get_rank']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
@@ -2350,6 +2350,21 @@ def enable_cudnn_benchmark(verbose=True):
             print("cuDNN benchmark enabled for performance optimization.")
     elif verbose:
         print("CUDA/cuDNN not available, benchmark not enabled.")
+
+
+def get_rank(return_world_size=False):
+    from ..mpi.mpi import has_mpi, get_comm
+    from torch.distributed import get_rank as torch_get_rank, get_world_size as torch_get_world_size, is_initialized, \
+        is_available
+    rank, ranks = 0, 1
+    if has_mpi():
+        comm, rank, ranks = get_comm()
+    elif is_available() and is_initialized():
+        rank = torch_get_rank()
+        ranks = torch_get_world_size()
+    if return_world_size:
+        return rank, ranks
+    return rank
 
 
 def get_num_nodes(default=1, warn=True) -> int:
