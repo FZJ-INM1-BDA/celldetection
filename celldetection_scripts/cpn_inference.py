@@ -269,8 +269,7 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
         y = trainer.predict(model, data_loader)
 
         is_dist = is_available() and is_initialized()
-        rank = get_rank()
-        ranks = get_world_size()
+        rank, ranks = cd.get_rank(return_world_size=True)
 
         pre_results = {}
         for y_idx, y_ in enumerate(y):
@@ -308,6 +307,8 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
 
         if (is_dist and rank == 0) or not is_dist:
             results_ = {}
+            if isinstance(pre_results, dict):
+                pre_results = pre_results,
             for r_idx, r in enumerate(pre_results):
                 assert isinstance(r, dict)
                 concat_results_flat_(results_, r)
