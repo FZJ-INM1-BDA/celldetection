@@ -8,6 +8,7 @@ name: Mark stale issues and pull requests
 on:
   schedule:
   - cron: '30 19 * * *'  # Runs daily at 19:30 UTC
+  workflow_dispatch:      # Allows the workflow to be triggered manually from the GitHub UI
 
 jobs:
   stale:
@@ -30,4 +31,4 @@ jobs:
         exempt-pr-labels: 'pinned, security'     # Labels which exempt a PR from being marked as stale
         operations-per-run: 30                  # Limit the number of operations per run
         remove-stale-when-updated: true          # Remove stale label when new activity occurs
-        debug-only: true                        # Set to true for only logging actions instead of performing them
+        debug-only: true                        # Set to false to perform actions, true to only log them
