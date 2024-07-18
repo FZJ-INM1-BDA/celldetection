@@ -748,7 +748,7 @@ def cpn_inference(
                 else:
                     label_vis = cd.data.contours2overlay(y.get('contours'), img.shape[:2])
                 dst_ove_tif = dst.format(ext='_overlay.tif')
-                tifffile.imwrite(dst_ove_tif, label_vis, compression='ZLIB')
+                tifffile.imwrite(dst_ove_tif, label_vis, compression='ZLIB', bigtiff=label_vis.size > (2 ** 28))
                 output['overlay'] = label_vis
                 out_files['overlay'] = dst_ove_tif
 
