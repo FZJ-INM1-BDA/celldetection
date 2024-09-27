@@ -1,15 +1,16 @@
 import torch
 from typing import Any, Dict, List, Union, Sequence
-import pytorch_lightning as pl
 from ..util.util import asnumpy, get_tiling_slices
 from torch import Tensor, nn
 from collections import OrderedDict
+from lightning_fabric.utilities.rank_zero import rank_zero_only
 from ..data.instance_eval import LabelMatcher
 from ..data.cpn import contours2labels
 from ..data.misc import channels_first2channels_last
 from ..ops.cpn import remove_border_contours
 import numpy as np
 from torchvision.ops.boxes import remove_small_boxes, nms
+import pytorch_lightning as pl
 from .lightning_base import LitBase
 
 __all__ = ['LitCpn']
@@ -97,6 +98,7 @@ class LitCpn(LitBase):
         results: List[List[Dict[str, Tensor]]] = [[None] * prod for _ in torch.arange(0, inputs.shape[0])]
         h_tiles, w_tiles = slices_by_dim
         device = self.device
+        kwargs.pop('max_imsize', None)
         extra_keys = kwargs.get('extra_keys', ())  # extra output keys
         extra_nms = kwargs.get('extra_nms', {})  # specify which extra outputs need to be filtered by nms
         border_removal = kwargs.get('border_removal', 6)
@@ -104,13 +106,14 @@ class LitCpn(LitBase):
         nms_thresh = kwargs.get('nms_thresh', self.model.__dict__.get('nms_thresh', None))
         inputs_mask = kwargs.get('inputs_mask')
         assert nms_thresh is not None, 'Could not retrieve nms_thresh from model. Please specify it in forward method.'
+        targets = kwargs.pop('targets', None)
         for i, slices_ in enumerate(slices):
             crop = inputs[(...,) + tuple(slices_)].to(device)
             if inputs_mask is not None:
                 crop_m = inputs_mask[(...,) + tuple(slices_)].to(device)
                 if not torch.any(crop_m):
                     continue  # skip masked out tile
-            outputs = self.forward(crop, targets=kwargs.get('targets'), max_imsize=False)
+            outputs = self.forward(crop, targets=targets, max_imsize=False, **kwargs)
             h_i, w_i = np.unravel_index(i, slices_by_dim)
             h_start, w_start = [s.start for s in slices_]
 
@@ -173,6 +176,7 @@ class LitCpn(LitBase):
                         final[k][n] = v[keep]
         return final
 
+    @rank_zero_only
     def log_batch(self: 'pl.LightningModule', batch: dict, stage: str, keys=('inputs', 'labels'), global_step=None):
         if global_step is None:
             global_step = self.global_step
