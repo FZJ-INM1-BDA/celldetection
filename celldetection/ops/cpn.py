@@ -9,6 +9,8 @@ __all__ = [
     'resolve_refinement_buckets', 'refinement_bucket_weight'
 ]
 
+NMS_BATCH_SIZE = 50000
+
 
 def rel_location2abs_location(locations, cache: Dict[str, Tensor] = None, cache_size: int = 16):
     """
@@ -185,12 +187,42 @@ def batched_box_nms(
 
 
 def batched_box_nmsi(
-        boxes: List[Tensor], scores: List[Tensor], iou_threshold: float
+        boxes: List[Tensor], scores: List[Tensor], iou_threshold: float, batch_size: int = None
 ) -> List[Tensor]:
-    assert len(scores) == len(boxes)
+    """
+    Apply Non-Maximum Suppression (NMS) in batches to avoid OOM errors for very large numbers of boxes.
+
+    Args:
+        boxes (List[Tensor]): List of tensors where each tensor contains bounding box coordinates of
+            shape [num_boxes, 4].
+        scores (List[Tensor]): List of tensors where each tensor contains scores for each box of shape [num_boxes].
+        iou_threshold (float): The IoU threshold for suppression.
+        batch_size (int): Maximum number of boxes to process in each batch.
+
+    Returns:
+        List[Tensor]: A list of tensors where each tensor contains the indices of the boxes that are kept after NMS.
+    """
+    assert len(scores) == len(boxes), "The number of score tensors must match the number of box tensors."
+    batch_size = NMS_BATCH_SIZE if batch_size is None else batch_size
     keeps = []
     for con, sco in zip(boxes, scores):
-        indices = torch.ops.torchvision.nms(con, sco, iou_threshold=iou_threshold)
+        num_boxes = con.size(0)
+        if num_boxes <= batch_size:
+            indices = torch.ops.torchvision.nms(con, sco, iou_threshold)
+        else:
+            indices = torch.zeros(0, dtype=torch.long, device=con.device)
+            for start_idx in range(0, num_boxes, batch_size):
+                end_idx = min(start_idx + batch_size, num_boxes)
+                batch_indices = torch.ops.torchvision.nms(con[start_idx:end_idx], sco[start_idx:end_idx], iou_threshold)
+                indices = torch.cat((indices, batch_indices + start_idx))
+
+            # Final NMS to eliminate duplicates across batches
+            if indices.numel() > 0:
+                final_boxes = con[indices]
+                final_scores = sco[indices]
+                keep_final_indices = torch.ops.torchvision.nms(final_boxes, final_scores, iou_threshold)
+                indices = indices[keep_final_indices]
+
         keeps.append(indices)
     return keeps
 
