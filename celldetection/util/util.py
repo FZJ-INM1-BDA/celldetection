@@ -11,7 +11,7 @@ import hashlib
 import json
 from tqdm import tqdm
 from os.path import join, isfile, splitext
-from os import makedirs
+from os import makedirs, cpu_count as os_cpu_count, environ
 import pynvml as nv
 from cv2 import getGaussianKernel
 import h5py
@@ -25,6 +25,8 @@ from PIL import Image
 from io import BytesIO
 from base64 import b64encode, b64decode
 from glob import glob
+import threading
+from functools import wraps
 
 __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'asnumpy', 'fetch_model',
            'random_code_name', 'dict_hash', 'fetch_image', 'random_seed', 'tweak_module_', 'add_to_loss_dict',
@@ -42,7 +44,7 @@ __all__ = ['Dict', 'lookup_nn', 'reduce_loss_dict', 'tensor_to', 'to_device', 'a
            'resolve_model', 'is_package_installed', 'has_argument', 'dict_to_json_string', 'resolve_pretrained',
            'OomCatcher', 'get_random_states', 'save_random_states', 'load_random_states', 'is_picklable', 'get_dtype',
            'calculate_padding', 'from_yaml', 'to_yaml', 'enable_cudnn_benchmark', 'get_num_nodes',
-           'is_from_installed_package', 'load_txt', 'get_rank']
+           'is_from_installed_package', 'load_txt', 'get_rank', 'cpu_count', 'get_total_memory']
 
 
 def copy_script(dst, no_script_okay=True, frame=None, verbose=False):
@@ -1657,6 +1659,22 @@ def print_to_file(*args, filename, mode='w', **kwargs):
         print(*args, file=f, **kwargs)
 
 
+def get_total_memory(device: Union[str, torch.device]):
+    if isinstance(device, str):
+        device = torch.device(device)
+    if device.type == 'cuda':
+        total_memory = torch.cuda.get_device_properties(device.index).total_memory
+    elif device.type == 'cpu':
+        try:
+            import psutil
+        except ImportError:
+            raise ImportError("psutil is required for CPU memory checks. Install it via 'pip install psutil'")
+        total_memory = psutil.virtual_memory().total
+    else:
+        raise NotImplementedError(f"Device type '{device.type}' is not supported.")
+    return Bytes(total_memory)
+
+
 def num_bytes(x: Union[np.ndarray, Tensor]):
     """Num Bytes.
 
@@ -2357,11 +2375,11 @@ def get_rank(return_world_size=False):
     from torch.distributed import get_rank as torch_get_rank, get_world_size as torch_get_world_size, is_initialized, \
         is_available
     rank, ranks = 0, 1
-    if has_mpi():
-        comm, rank, ranks = get_comm()
-    elif is_available() and is_initialized():
+    if is_available() and is_initialized():
         rank = torch_get_rank()
         ranks = torch_get_world_size()
+    elif has_mpi():
+        comm, rank, ranks = get_comm()
     if return_world_size:
         return rank, ranks
     return rank
@@ -2391,6 +2409,41 @@ def get_num_nodes(default=1, warn=True) -> int:
             warnings.warn(f'Could not resolve number of nodes. Falling back to num_nodes={num_nodes}. '
                           f'If that is not correct, please try to set it explicitly.')
     return num_nodes
+
+
+def cpu_count(adjust=True):
+    """Adjusted CPU count.
+
+    Returns the number of available CPU cores.
+    In Slurm environment, CPU count is retrieved from `SLURM_CPUS_PER_TASK`.
+    In MPI environment (without Slurm), CPU count is divided by number of local ranks.
+
+    Args:
+        adjust: Whether to adjust CPU count by Slurm or MPI settings.
+
+    Returns:
+        Number of available CPU cores.
+    """
+    total_cpus = os_cpu_count()
+    if not adjust:
+        return total_cpus
+
+    from ..mpi.mpi import has_mpi, get_local_comm
+
+    # Slurm
+    if 'SLURM_CPUS_PER_TASK' in environ:
+        try:
+            return int(environ['SLURM_CPUS_PER_TASK'])
+        except ValueError:
+            pass
+
+    # MPI
+    if has_mpi():
+        _, local_rank, local_ranks = get_local_comm(None, return_ranks=True)
+        if total_cpus is not None:
+            return max(1, total_cpus // local_ranks)
+
+    return total_cpus or 1
 
 
 def is_from_installed_package(obj, context: list = None) -> bool:
