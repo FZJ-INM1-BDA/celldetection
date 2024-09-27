@@ -168,11 +168,29 @@ def concat_results_(coll, new):
             coll[k] = torch.cat((coll.get(k, v_[:0]), v_))
 
 
-def concat_results_flat_(coll, new):
+def oom_safe_concat_results_flat_(coll, new, target_device=None, fallback_device='cpu'):
     for k, v in new.items():
         if not isinstance(v, torch.Tensor):
             continue
-        coll[k] = torch.cat((coll.get(k, v[:0]), v))
+
+        # OOM safe concatenation
+        def on_oom():
+            nonlocal target_device, coll
+            warn(f'Not enough memory. Moving data to {fallback_device} in order to continue.')
+            target_device = fallback_device
+            for k__, v__ in coll.items():
+                coll[k__] = cd.to_device(v__, target_device)
+
+        v_ = None
+        oom = cd.OomCatcher(2, callback=on_oom)
+        while oom:
+            if target_device is not None:
+                v = v.to(target_device)
+            with oom:
+                v_ = torch.cat((coll.get(k, v[:0]), v))
+        assert v_ is not None
+        coll[k] = v_
+    return target_device
 
 
 def preprocess(img, gamma=1., contrast=1., brightness=0., percentile=None):
@@ -224,6 +242,68 @@ def resolve_model(model_name, model_parameters, verbose=True, **kwargs):
     return model
 
 
+def oom_safe_gather_dict(local_dict: Dict[str, torch.Tensor], dst=0, fallback_device='cpu',
+                         device: torch.device = None) -> List[Dict[str, torch.Tensor]]:
+    rank, ranks = cd.get_rank(True)
+    result = [{} for _ in range(ranks)] if rank == dst else None
+    target_device = None
+    for k, v in local_dict.items():
+        assert isinstance(v, torch.Tensor), f'Expected type Tensor, but found {type(v)}'
+
+        # Gather sizes
+        sizes = [torch.empty(1, dtype=int, device=device) for _ in range(ranks)] if rank == dst else None
+        size = torch.empty(1, dtype=int, device=device).fill_(v.shape[0])
+        torch.distributed.gather(size, sizes, dst=dst)
+
+        # Custom gather Tensors
+        vs = None
+        recv_tensor = None
+        if rank == dst:
+            vs = []
+            ds = tuple(v.shape[1:])
+            for src in range(ranks):
+                recv_size = tuple(sizes[src].cpu().data.numpy()) + ds
+                if src == dst:
+                    recv_tensor = v.to(device)
+                    if target_device is None:  # if not target device, send to where everything else is
+                        def on_oom():
+                            nonlocal recv_tensor, target_device
+                            target_device = fallback_device
+                            recv_tensor = v.to(fallback_device)
+
+                        oom = cd.OomCatcher(2, callback=on_oom)
+                        while oom:
+                            with oom:
+                                recv_tensor = recv_tensor.to(device)
+                else:
+                    # Create OOM safe recv Tensor
+                    def on_oom():
+                        nonlocal target_device, result, vs
+                        warn(f'Not enough memory on {device}. Moving data to {fallback_device} in order to continue.')
+                        target_device = fallback_device
+                        result = cd.to_device(result, target_device)
+                        vs = cd.to_device(vs, target_device)
+
+                    oom = cd.OomCatcher(2, callback=on_oom)
+                    while oom:
+                        with oom:
+                            recv_tensor = torch.empty(recv_size, dtype=v.dtype, device=device)
+
+                    torch.distributed.recv(recv_tensor, src=src)  # todo: receive unordered
+                if target_device is not None:  # move to other device right away
+                    recv_tensor = recv_tensor.to(target_device)
+                vs.append(recv_tensor)
+        else:
+            # Send tensor to destination rank
+            torch.distributed.send(v.to(device), dst=dst)
+
+        if rank == dst:
+            # Rearrange to output format
+            for r in range(ranks):
+                result[r][k] = vs[r]
+    return result
+
+
 def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768, 768), strides=(384, 384), reps=1,
                 transforms=None, model_kwargs_list=None,
                 batch_size=1, num_workers=0, pin_memory=False, border_removal=4, min_vote=1, stitching_rule='nms',
@@ -244,7 +324,9 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
     img = preprocess(img, gamma=gamma, contrast=contrast, brightness=brightness, percentile=percentile)
     if img.ndim == 2 or (img.ndim == 3 and img.shape[-1] == 1):  # todo: should depend on model
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-    x = img.astype('float32') / 255
+    x = img  # uint8 converted in lightning_base from now on
+    if x.dtype.kind == 'f':
+        x = x.astype(np.float32)
 
     tile_loader = TileLoader(x, mask=mask, point_mask=point_mask, crop_size=crop_size, strides=strides, reps=reps,
                              transforms=transforms, point_mask_exclusive=point_mask_exclusive)
@@ -262,6 +344,7 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
     results = {}
     h_tiles, w_tiles = tile_loader.num_slices_per_axis
     nms_thresh = None
+    target_device = None  # if it is necessary to move data to another device (e.g. CPU), this variable will be set
     for model_name, model_kwargs in zip(models, model_kwargs_list):
         model = resolve_model(model_name, model_parameters, verbose=verbose, **model_kwargs)
         nms_thresh = kwargs.get('nms_thresh', model.model.nms_thresh)
@@ -301,9 +384,9 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
             concat_results_(pre_results, y_)
 
         if is_dist:
-            pre_results_ = [None] * ranks if rank == 0 else None
-            gather_object(pre_results, pre_results_, dst=0)
-            pre_results = pre_results_
+            # oom_safe_gather_dict may move everything to cpu if necessary
+            pre_results = oom_safe_gather_dict(pre_results, dst=0, device=trainer.strategy.root_device)
+            assert (rank == 0) or (pre_results is None)
 
         if (is_dist and rank == 0) or not is_dist:
             results_ = {}
@@ -311,7 +394,8 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
                 pre_results = pre_results,
             for r_idx, r in enumerate(pre_results):
                 assert isinstance(r, dict)
-                concat_results_flat_(results_, r)
+                # oom_safe_concat_results_flat_ may move everything to cpu if necessary
+                target_device = oom_safe_concat_results_flat_(results_, r, target_device=target_device)
 
             # Remove duplicates from tiling
             if 'nms' in stitching_rule.split(','):
@@ -319,7 +403,7 @@ def apply_model(img, models, trainer, mask=None, point_mask=None, crop_size=(768
                 apply_keep_indices_flat_(results_, keep, ['offsets', 'overlaps'])
 
             # Concat all batch items to flat results
-            concat_results_flat_(results, results_)
+            target_device = oom_safe_concat_results_flat_(results, results_, target_device=target_device)
 
     if 'offsets' in results:
         del results['offsets']
@@ -568,6 +652,10 @@ def cpn_inference(
     if verbose and model_parameters is not None and len(model_parameters):
         print('Changing the following model parameters:', model_parameters)
 
+    # Num nodes
+    if num_nodes == 'auto':
+        num_nodes = cd.get_num_nodes()
+
     if verbose:
         print('Summary:\n ', '\n  '.join([
             f'Number of inputs: {len(input_list)}',
@@ -579,11 +667,10 @@ def cpn_inference(
             f'Cuda device count: {torch.cuda.device_count() if torch.cuda.is_available() else 0}',
             f'Accelerator: {accelerator}',
             f'Strategy: {strategy}',
+            f'Num nodes: {num_nodes}',
         ]))
 
     # Load model
-    if num_nodes == 'auto':
-        num_nodes = cd.get_num_nodes()
     trainer = pl.Trainer(
         num_nodes=num_nodes,
         accelerator=accelerator,
@@ -874,6 +961,8 @@ def main():
                         help='Model parameters. Pass as string in "key=value,key1=value1" format')
     parser.add_argument('--skip_existing', action='store_true',
                         help='Whether to skip existing files. ')
+    parser.add_argument('--continue_on_exception', action='store_true',
+                        help='Whether to continue if an exception occurs. ')
 
     args, unknown = parser.parse_known_args()
 
@@ -923,6 +1012,7 @@ def main():
         model_kwargs=args.model_kwargs,
         group_level=args.group_level,
         return_results=False,
+        continue_on_exception=args.continue_on_exception
     )
 
     if not (is_available() and is_initialized()) or get_rank() == 0:  # because why not
