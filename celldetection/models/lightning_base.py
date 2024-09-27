@@ -11,6 +11,7 @@ from ..optim.lr_scheduler import SequentialLR
 from itertools import chain, product
 from torch.distributed import is_available, all_gather_object, get_world_size, is_initialized
 from collections import OrderedDict, ChainMap
+from lightning_fabric.utilities.rank_zero import rank_zero_only
 from ..visualization.images import show_detection, imshow_row
 from ..visualization.cmaps import label_cmap
 from ..util.util import GpuStats, to_device, asnumpy, update_model_hparams_, resolve_model, has_argument
@@ -46,6 +47,12 @@ def merge_dictionaries(dict_list: List[Dict[str, Dict[str, float]]]):
         for key, value in d.items():
             result.setdefault(key, {}).update(value)
     return result
+
+
+def can_log_images(logger):
+    if isinstance(logger, (list, tuple)):
+        return any(can_log_images(s) for s in logger)
+    return hasattr(logger, 'add_image') or hasattr(logger, 'log_image')
 
 
 class LitBase(pl.LightningModule):  # requires pl.LightningModule
@@ -139,7 +146,7 @@ class LitBase(pl.LightningModule):  # requires pl.LightningModule
 
     def _iter_loggers(self, experiment=True):
         for logger in self.loggers:
-            if experiment and hasattr(logger, 'experiment'):
+            if experiment and hasattr(logger, 'experiment') and isinstance(logger, pl.loggers.TensorBoardLogger):
                 logger = logger.experiment
             if logger is not None:
                 yield logger
@@ -150,7 +157,7 @@ class LitBase(pl.LightningModule):  # requires pl.LightningModule
 
     def log_label_figures(self, tag, inputs, labels, close=True):
         for logger in self._iter_loggers():
-            if hasattr(logger, 'add_image'):
+            if can_log_images(logger):
                 if self.nd == 2:
                     try:
                         figures = []
@@ -190,6 +197,7 @@ class LitBase(pl.LightningModule):  # requires pl.LightningModule
                 log_figure(logger, tag=tag, figure=figures, global_step=global_step, close=close)
                 plt.close('all')  # should already be done above
 
+    @rank_zero_only
     def log_batch(self: 'pl.LightningModule', batch: dict, stage: str, keys=('inputs', 'labels'), global_step=None):
         if global_step is None:
             global_step = self.global_step
@@ -275,7 +283,7 @@ class LitBase(pl.LightningModule):  # requires pl.LightningModule
         outputs: dict = self._training_step(batch=batch, batch_idx=batch_idx)
         log_d = {}
         if self.gpu_stats and GPU_STATS is not None and self.trainer.local_rank == 0:
-            log_d.update(GPU_STATS.dict(prefix=f'gpus/node{self.trainer.node_rank}/gpu'))
+            log_d.update(GPU_STATS.dict(prefix=f'gpus/gpu'))
         losses = outputs.get('losses')
         loss = losses['loss'] = losses.get('loss', outputs['loss'])
 
@@ -291,8 +299,7 @@ class LitBase(pl.LightningModule):  # requires pl.LightningModule
         if len(self._running_avg):
             self.log_losses(self._running_avg, prefix='ema')
         if log_d:
-            self.log_dict(log_d, prog_bar=self.losses_prog_bar, logger=True, on_step=True, sync_dist=False)
-
+            self.log_dict(log_d, prog_bar=self.losses_prog_bar, logger=True, on_step=True, sync_dist=True)
         return outputs
 
     def training_step_end(self, training_step_outputs):
@@ -363,6 +370,15 @@ class LitBase(pl.LightningModule):  # requires pl.LightningModule
             warnings.warn('Data source does not offer `update_sampler_weights` method. '
                           'Hence, adaptive sampling is not possible.')
 
+    def on_train_start(self) -> None:
+        if self._val_mean_keys is not None:
+            hp_metrics = {f'val/{k}': 0. for k in self._val_mean_keys}
+            for logger in self._iter_loggers(experiment=False):
+                if has_argument(logger.log_hyperparams, 'metrics'):
+                    logger.log_hyperparams(self.hparams, metrics=hp_metrics)
+                else:
+                    logger.log_hyperparams(self.hparams)
+
     def on_train_epoch_end(self: 'pl.LightningModule') -> None:
         item_record = self.gather_item_records()
         self.log_item_record(item_record=item_record)
@@ -419,15 +435,16 @@ class LitBase(pl.LightningModule):  # requires pl.LightningModule
             else:
                 scheduler = SequentialLR(optimizer, [warmup, scheduler], milestones=[self.warmup_steps])
 
+        scheduler_conf = {} if self._scheduler_conf is None else self._scheduler_conf
         scheduler = {
             **dict(
                 interval='step',
                 frequency=1,
                 scheduler=scheduler,
-                strict=True,
+                strict=False,
                 name=None,
             ),
-            **(self._scheduler_conf or {})
+            **scheduler_conf
         }
 
         return [optimizer], [scheduler]
@@ -754,6 +771,14 @@ class LitBase(pl.LightningModule):  # requires pl.LightningModule
             else:
                 scheduler.step()
 
+    def prepare_inputs(self, inputs: Tensor, **kwargs) -> Tensor:
+        device = self.device
+        if inputs.device != device:
+            inputs = inputs.to(device)
+        if inputs.dtype == torch.uint8:
+            inputs = inputs.to(dtype=torch.float32) / 255
+        return inputs
+
     def forward(
             self,
             inputs: Tensor,
@@ -764,11 +789,7 @@ class LitBase(pl.LightningModule):  # requires pl.LightningModule
         max_imsize = self.max_imsize if max_imsize is None else max_imsize
         if max_imsize and max(inputs.shape[2:]) > max_imsize and not self.training:
             return self.forward_tiled(inputs, targets=targets, **kwargs)
-
-        device = self.device
-        if inputs.device != device:
-            inputs = inputs.to(device)
-
+        inputs = self.prepare_inputs(inputs, **kwargs)
         return self.model(inputs, targets=targets, **kwargs)
 
     def forward_tiled(
