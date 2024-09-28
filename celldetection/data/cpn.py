@@ -243,7 +243,7 @@ def contours2boxes(contours):
     return boxes
 
 
-def render_contour(contour, val=1, dtype='int32', round=False, reference=None):
+def render_contour(contour, val=1, dtype='int32', round=False, reference=None, thickness=-1):
     if reference is None:
         reference = contour
     xmin, ymin = np.floor(np.min(reference, axis=0)).astype('int')
@@ -251,8 +251,8 @@ def render_contour(contour, val=1, dtype='int32', round=False, reference=None):
     a = np.zeros((ymax - ymin + 1, xmax - xmin + 1), dtype=dtype)
     if round:
         contour = contour.round()
-    a = cv2.drawContours(a, [np.array(contour, dtype=np.int32).reshape((-1, 1, 2))], 0, val, -1,
-                         offset=(-xmin, -ymin))
+    a = cv2.drawContours(a, [np.array(contour, dtype=np.int32).reshape((-1, 1, 2))], 0, val,
+                         thickness, offset=(-xmin, -ymin))
     return a, (xmin, xmax), (ymin, ymax)
 
 
@@ -644,7 +644,8 @@ class CPNTargetGenerator:
         return self._sampled_sizes
 
 
-def _add_contour_to_overlay_(counter, overlay, contour, size, hue_range, saturation_range, value_range, rounded, clip):
+def _add_contour_to_overlay_(counter, overlay, contour, size, hue_range, saturation_range, value_range, rounded, clip,
+                             thickness):
 
     dtype = overlay.dtype
     is_int = np.issubdtype(dtype, np.integer)
@@ -652,7 +653,7 @@ def _add_contour_to_overlay_(counter, overlay, contour, size, hue_range, saturat
         contour = np.round(contour)
     if clip:
         clip_contour_(contour, np.array(size) - 1)
-    a, (xmin, xmax), (ymin, ymax) = render_contour(contour, val=1, dtype='uint8')
+    a, (xmin, xmax), (ymin, ymax) = render_contour(contour, val=1, dtype='uint8', thickness=thickness)
     a = a.astype(dtype)
     c, = random_colors_hsv(1, hue_range=hue_range, saturation_range=saturation_range, value_range=value_range,
                            ubyte=is_int)
@@ -673,7 +674,7 @@ def _add_contour_to_overlay_mp_(args):
 
     """
     (contour, overlay_shm_name, overlay_shape, counter_shm_name, counter_shape, dtype_char,
-     size, hue_range, saturation_range, value_range, rounded, clip, seed) = args
+     size, hue_range, saturation_range, value_range, rounded, clip, seed, thickness) = args
 
     dtype = np.dtype(dtype_char)
 
@@ -688,7 +689,7 @@ def _add_contour_to_overlay_mp_(args):
         # Add contour to overlay and counter
         np.random.seed(seed)  # specific seed is about 100x faster than np.random.seed(None)
         _add_contour_to_overlay_(counter, overlay, contour, size, hue_range, saturation_range, value_range,
-                                 rounded, clip)
+                                 rounded, clip, thickness)
     finally:
         # Close shared memory (do not unlink, only the creator should unlink)
         existing_overlay_shm.close()
@@ -724,7 +725,7 @@ def _postprocess_overlay(overlay, counter, normalize=True):
 
 def _contours2overlay_mp(contours, size, hue_range=(0, 360), saturation_range=(60, 133),
                          value_range=(180, 256), rounded=True, clip=True,
-                         intermediate_dtype='uint16', processes=None) -> np.ndarray:
+                         intermediate_dtype='uint16', thickness=-1, processes=None) -> np.ndarray:
     """
 
     Multiprocessing version of contours to overlay.
@@ -781,7 +782,8 @@ def _contours2overlay_mp(contours, size, hue_range=(0, 360), saturation_range=(6
                 value_range,
                 rounded,
                 clip,
-                seed  # multiprocessing requires seeds
+                seed,  # multiprocessing requires seeds
+                thickness
             )
             for contour, seed in zip(
                 contours,
@@ -807,7 +809,7 @@ def _contours2overlay_mp(contours, size, hue_range=(0, 360), saturation_range=(6
 
 
 def contours2overlay(contours, size, hue_range=(0, 180), saturation_range=(60, 133), value_range=(180, 256),
-                     rounded=True, clip=True, intermediate_dtype='uint16', processes=None):
+                     rounded=True, clip=True, intermediate_dtype='uint16', thickness=-1, processes=None):
     """Contours to overlay.
 
     Creates an overlay image from contours.
@@ -828,6 +830,7 @@ def contours2overlay(contours, size, hue_range=(0, 180), saturation_range=(60, 1
         intermediate_dtype: Intermediate dtype. Small dtypes reduce memory consumption and speed up processing.
             The dtype also limits the maximum number of overlaps. The sum of all overlapping
             colors, as well as the number of overlaps, must remain below the dtypes upper limit.
+        thickness: Thickness of lines the contours are drawn with. If it is negative, the contour interiors are drawn. 
         processes: Number of processes for multiprocessing. `None` disables multiprocessing.
             Negative values cause number of processes to be inferred from system CPU count and
             environment (e.g. MPI, Slurm).
@@ -840,13 +843,13 @@ def contours2overlay(contours, size, hue_range=(0, 180), saturation_range=(60, 1
 
     if processes is not None and processes not in (1, 0):
         return _contours2overlay_mp(contours, size, hue_range, saturation_range, value_range, rounded, clip,
-                                    intermediate_dtype, processes)
+                                    intermediate_dtype, thickness, processes)
     else:
         overlay = np.zeros(tuple(size) + (4,), dtype=intermediate_dtype)
         counter = np.zeros(tuple(size), dtype=intermediate_dtype)
         if contours is not None:
             for contour in contours:
                 _add_contour_to_overlay_(counter, overlay, contour, size, hue_range, saturation_range, value_range,
-                                         rounded, clip)
+                                         rounded, clip, thickness=thickness)
         overlay = _postprocess_overlay(overlay, counter, normalize=contours is not None)
         return overlay
