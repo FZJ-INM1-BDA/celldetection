@@ -2183,25 +2183,52 @@ class OomCatcher:
 
         Examples:
             >>> oom = cd.OomCatcher()
+            ... for attempt in oom:  # reiterates on OOM
+            ...     with oom:  # catches OOM
+            ...         ...  # do something
+            >>> oom = cd.OomCatcher()
             ... while oom:  # reiterates on OOM
             ...     with oom:  # catches OOM
             ...         ...  # do something
+            ... # Call oom.reset() before reusing oom object if while loop was used. for loop already takes care of that
 
         Args:
             attempts: Number of attempts
             callback: Callback that is called when OOM is detected.
         """
-        self.attempt = 0
+        self._attempt = 0
         self.attempts = attempts
         self.done = False
         self.callback = callback
         self.args = args
         self.kwargs = kwargs
+        self.iter_mode = False
+
+    @property
+    def attempt(self):
+        return self._attempt - int(self.iter_mode)
+
+    def __iter__(self):
+        self.reset()
+        self.iter_mode = True
+        return self
+
+    def __next__(self):
+        if self._attempt < self.attempts and self:
+            self._attempt += 1
+        else:
+            raise StopIteration
+        return self.attempt
 
     def on_oom(self):
         if self.callback is not None:
             self.callback(*self.args, **self.kwargs)
         torch.cuda.empty_cache()
+
+    def reset(self):
+        self._attempt = 0
+        self.done = False
+        self.iter_mode = False
 
     def __bool__(self):
         return not self.done
@@ -2214,8 +2241,9 @@ class OomCatcher:
         if not exc:
             self.done = True
             return True
-        self.attempt += 1
-        if (self.attempt >= self.attempts) or exc != torch.cuda.OutOfMemoryError:
+        if not self.iter_mode:
+            self._attempt += 1
+        if (self._attempt >= self.attempts) or exc != torch.cuda.OutOfMemoryError:
             return False
         self.on_oom()
         return True
