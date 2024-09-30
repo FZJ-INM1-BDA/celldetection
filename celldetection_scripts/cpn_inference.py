@@ -183,7 +183,7 @@ def oom_safe_concat_results_flat_(coll, new, target_device=None, fallback_device
 
         v_ = None
         oom = cd.OomCatcher(2, callback=on_oom)
-        while oom:
+        for attempt in oom:
             if target_device is not None:
                 v = v.to(target_device)
             with oom:
@@ -261,34 +261,26 @@ def oom_safe_gather_dict(local_dict: Dict[str, torch.Tensor], dst=0, fallback_de
         if rank == dst:
             vs = []
             ds = tuple(v.shape[1:])
+
+            def on_oom():
+                warn(f'Not enough memory on {device}. Moving data to {fallback_device} in order to continue.')
+                nonlocal target_device, result, vs
+                target_device = fallback_device
+                result = cd.to_device(result, target_device)
+                vs = cd.to_device(vs, target_device)
+
+            oom = cd.OomCatcher(2, callback=on_oom)
             for src in range(ranks):
                 recv_size = tuple(sizes[src].cpu().data.numpy()) + ds
-                if src == dst:
-                    recv_tensor = v.to(device)
-                    if target_device is None:  # if not target device, send to where everything else is
-                        def on_oom():
-                            nonlocal recv_tensor, target_device
-                            target_device = fallback_device
-                            recv_tensor = v.to(fallback_device)
-
-                        oom = cd.OomCatcher(2, callback=on_oom)
-                        while oom:
-                            with oom:
-                                recv_tensor = recv_tensor.to(device)
-                else:
+                if src == dst:  # data from own rank
+                    for attempt in oom:
+                        with oom:
+                            recv_tensor = v.to(target_device or device)
+                else:  # data from other ranks
                     # Create OOM safe recv Tensor
-                    def on_oom():
-                        nonlocal target_device, result, vs
-                        warn(f'Not enough memory on {device}. Moving data to {fallback_device} in order to continue.')
-                        target_device = fallback_device
-                        result = cd.to_device(result, target_device)
-                        vs = cd.to_device(vs, target_device)
-
-                    oom = cd.OomCatcher(2, callback=on_oom)
-                    while oom:
+                    for attempt in oom:
                         with oom:
                             recv_tensor = torch.empty(recv_size, dtype=v.dtype, device=device)
-
                     torch.distributed.recv(recv_tensor, src=src)  # todo: receive unordered
                 if target_device is not None:  # move to other device right away
                     recv_tensor = recv_tensor.to(target_device)
