@@ -249,8 +249,8 @@ def resolve_model(model_name, model_parameters, verbose=True, **kwargs):
             if hasattr(model.model, k):
                 setattr(model.model, k, type(getattr(model.model, k))(v))
             else:
-                warn(f'Could not find attribute {k} in model {model_name}. '
-                     f'Hence, the setting was not changed!')
+                raise ValueError(f'Could not find attribute {k} in model {model_name}! '
+                                 f'Please check your configuration.')
     return model
 
 
