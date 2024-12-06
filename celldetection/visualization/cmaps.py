@@ -7,12 +7,14 @@ import cv2
 __all__ = ['label_cmap', 'random_colors_hsv']
 
 
-def random_colors_hsv(num, hue_range=(0, 180), saturation_range=(60, 133), value_range=(180, 256)):
+def random_colors_hsv(num, hue_range=(0, 180), saturation_range=(60, 133), value_range=(180, 256), ubyte=False):
     colors, = cv2.cvtColor(np.stack((
         np.random.randint(*hue_range, num),
         np.random.randint(*saturation_range, num),
         np.random.randint(*value_range, num),
-    ), 1).astype('uint8')[None], cv2.COLOR_HSV2RGB) / 255
+    ), 1).astype('uint8')[None], cv2.COLOR_HSV2RGB)
+    if not ubyte:
+        colors = colors / 255
     return colors
 
 
