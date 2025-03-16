@@ -24,6 +24,47 @@ def _ni_3d(nd):
 
 
 @register
+class DynamicTanh(nn.Module):
+    def __init__(self, normalized_shape, channels_last, alpha_init_value=0.5):
+        """Dynamic Tanh.
+
+        Dynamic Tanh (DyT) is a replacement for commonly used Layer Norm or RMSNorm layers [1].
+
+        References:
+            - [1] https://arxiv.org/abs/2503.10622v1
+
+        Args:
+            normalized_shape (int or tuple): Shape of the normalized channels.
+            channels_last (bool): If True, expects input in (..., C) format.
+                If False, expects input in (B, C, ...) format.
+            alpha_init_value (float): Initial value for the learnable scalar alpha.
+        """
+        super().__init__()
+        if isinstance(normalized_shape, int):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = normalized_shape
+        self.channels_last = channels_last
+        self.alpha = nn.Parameter(torch.ones(1) * alpha_init_value)
+        self.weight = nn.Parameter(torch.ones(normalized_shape))
+        self.bias = nn.Parameter(torch.zeros(normalized_shape))
+
+    def forward(self, x):
+        x = torch.tanh(self.alpha * x)
+        weight = self.weight
+        bias = self.bias
+        if not self.channels_last:
+            extra_dims = x.dim() - 1 - len(self.normalized_shape)
+            new_shape = self.weight.shape + (1,) * extra_dims
+            weight = weight.view(new_shape)
+            bias = bias.view(new_shape)
+        return x * weight + bias
+
+    def extra_repr(self):
+        return (f"normalized_shape={self.normalized_shape}, channels_last={self.channels_last}, "
+                f"alpha_init_value={self.alpha.item()}")
+
+
+@register
 class ConvNorm(nn.Sequential):
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1, norm_layer=nn.BatchNorm2d,
                  nd=2, **kwargs):
