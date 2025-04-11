@@ -466,7 +466,7 @@ If you find this work useful, please consider giving a **star** ⭐️ and **cit
 ## 🔗 Links
 
 - [Article (sciencedirect)](https://www.sciencedirect.com/science/article/pii/S136184152200024X "Contour Proposal Networks for Biomedical Instance Segmentation")
-- [PDF (sciencedirect)](https://www.sciencedirect.com/sdfe/reader/pii/S136184152200024X/pdf "Contour Proposal Networks for Biomedical Instance Segmentation")
+- [PDF (sciencedirect)](https://www.sciencedirect.com/science/article/pii/S136184152200024X/pdfft "Contour Proposal Networks for Biomedical Instance Segmentation")
 - [PyPI](https://pypi.org/project/celldetection/ "CellDetection")
 - [Documentation](https://docs.celldetection.org "Documentation")
 
