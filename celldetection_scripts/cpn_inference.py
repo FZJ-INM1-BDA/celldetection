@@ -175,7 +175,7 @@ def oom_safe_concat_results_flat_(coll, new, target_device=None, fallback_device
 
         # OOM safe concatenation
         def on_oom():
-            nonlocal target_device, coll
+            nonlocal target_device
             warn(f'Not enough memory. Moving data to {fallback_device} in order to continue.')
             target_device = fallback_device
             for k__, v__ in coll.items():

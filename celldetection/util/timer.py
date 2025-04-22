@@ -69,7 +69,6 @@ def start_timer(name, cuda=True, collect=True):
     Returns:
 
     """
-    global TIMINGS
     if collect:
         gc.collect()
     if cuda:
@@ -80,7 +79,6 @@ def start_timer(name, cuda=True, collect=True):
 
 
 def stop_timer(name, cuda=True, verbose=True):
-    global TIMINGS
     if cuda:
         torch.cuda.synchronize()
     delta = time() - TIMINGS[name]
