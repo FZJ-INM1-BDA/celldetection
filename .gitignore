@@ -130,3 +130,30 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+data/
+mydata/
+Notes/
+.gitignore
+*.pth
+
+copy.ipynb
+mydata copy.ipynb
+old_mydata.ipynb
+mydata_2.ipynb
+demos/code/1 copy.ipynb
+demos/code/mydata.txt
+demos/code/1.ipynb
+
+demos/code/mydata_1.ipynb
+
+uncertainty_test/
+
+
+# all_figures/
+# output/
+# mydata_output/
+
+*.db
+
+output/

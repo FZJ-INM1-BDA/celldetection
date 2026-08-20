@@ -1,0 +1,162 @@
+Job ID: 3702557
+Node: c154
+Working directory: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code
+Python: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/.venv/bin/python
+Start time: Thu Jul  2 10:39:55 AM CEST 2026
+torch: 2.11.0+cu130
+celldetection: 0.4.9
+cuda available: True
+gpu: NVIDIA H100
+Output directory: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_output
+Logging to: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_output/run.log
+Saving all figures to: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_output/all_figures
+Started at: 2026-07-02 10:41:16.783667
+Config(
+  (directory): '../mydata'
+  (download_data): False
+  (in_channels): 1
+  (classes): 2
+  (shuffle): True
+  (bg_fg_dists): (0.8, 0.85)
+  (crop_size): (256, 256)
+  (cpn): 'CpnU22'
+  (score_thresh): 0.9
+  (val_score_threshs): (0.6, 0.8, 0.9)
+  (nms_thresh): 0.5
+  (val_nms_threshs): (0.3, 0.5, 0.8)
+  (contour_head_stride): 2
+  (order): 6
+  (samples): 64
+  (refinement_iterations): 3
+  (refinement_buckets): 6
+  (inputs_mean): 0.5
+  (inputs_std): 0.5
+  (tweaks): {'BatchNorm2d': {'momentum': 0.1}}
+  (optimizer): {'Adam': {'lr': 0.0001, 'betas': (0.9, 0.999), 'weight_decay': 0.001}}
+  (scheduler): {'StepLR': {'step_size': 5, 'gamma': 0.5}}
+  (epochs): 100
+  (steps_per_epoch): 512
+  (batch_size): 8
+  (amp): True
+  (test_batch_size): 4
+  (num_workers): 0
+  (device): 'cuda'
+)
+Training set: 289 samples
+Validation set: 62 samples
+Test set: 63 samples
+Epoch 001 | train_loss: 49.4544 | val_loss: 42.8516
+Epoch 002 | train_loss: 36.9239 | val_loss: 38.3960
+Epoch 003 | train_loss: 32.7297 | val_loss: 37.3240
+Epoch 004 | train_loss: 31.0809 | val_loss: 34.9788
+Epoch 005 | train_loss: 29.3836 | val_loss: 33.1028
+Epoch 006 | train_loss: 26.8920 | val_loss: 31.1626
+Epoch 007 | train_loss: 26.3592 | val_loss: 31.2277
+Epoch 008 | train_loss: 25.6934 | val_loss: 30.9020
+Epoch 009 | train_loss: 25.3420 | val_loss: 30.9416
+Epoch 010 | train_loss: 24.6617 | val_loss: 30.3523
+Epoch 011 | train_loss: 23.8937 | val_loss: 28.1001
+Epoch 012 | train_loss: 23.1774 | val_loss: 27.9785
+Epoch 013 | train_loss: 23.5086 | val_loss: 28.3495
+Epoch 014 | train_loss: 23.1740 | val_loss: 29.1162
+Epoch 015 | train_loss: 22.6936 | val_loss: 27.7808
+Epoch 016 | train_loss: 22.3333 | val_loss: 27.5037
+Epoch 017 | train_loss: 22.0488 | val_loss: 27.1321
+Epoch 018 | train_loss: 21.9327 | val_loss: 26.8725
+Epoch 019 | train_loss: 21.8357 | val_loss: 27.0515
+Epoch 020 | train_loss: 21.2768 | val_loss: 26.5913
+Epoch 021 | train_loss: 21.4898 | val_loss: 26.3180
+Epoch 022 | train_loss: 21.2787 | val_loss: 26.4741
+Epoch 023 | train_loss: 20.9020 | val_loss: 26.1314
+Epoch 024 | train_loss: 20.6931 | val_loss: 26.3333
+Epoch 025 | train_loss: 20.7856 | val_loss: 26.4549
+Epoch 026 | train_loss: 20.8072 | val_loss: 26.0564
+Epoch 027 | train_loss: 20.9814 | val_loss: 25.9931
+Epoch 028 | train_loss: 20.8145 | val_loss: 25.9393
+Epoch 029 | train_loss: 20.8428 | val_loss: 26.0809
+Epoch 030 | train_loss: 20.7574 | val_loss: 26.0722
+Epoch 031 | train_loss: 20.5644 | val_loss: 25.7888
+Epoch 032 | train_loss: 20.4900 | val_loss: 25.6760
+Epoch 033 | train_loss: 20.5569 | val_loss: 25.8035
+Epoch 034 | train_loss: 20.2842 | val_loss: 25.6990
+Epoch 035 | train_loss: 20.4877 | val_loss: 25.7333
+Epoch 036 | train_loss: 20.1393 | val_loss: 25.6382
+Epoch 037 | train_loss: 20.2539 | val_loss: 25.7039
+Epoch 038 | train_loss: 20.2541 | val_loss: 25.7221
+Epoch 039 | train_loss: 20.2924 | val_loss: 25.6912
+Epoch 040 | train_loss: 20.5670 | val_loss: 25.7104
+Epoch 041 | train_loss: 20.3693 | val_loss: 25.4710
+Epoch 042 | train_loss: 20.6183 | val_loss: 25.6133
+Epoch 043 | train_loss: 20.3743 | val_loss: 25.5760
+Epoch 044 | train_loss: 20.3897 | val_loss: 25.6573
+Epoch 045 | train_loss: 20.1328 | val_loss: 25.6432
+Epoch 046 | train_loss: 20.1362 | val_loss: 25.6618
+Epoch 047 | train_loss: 20.2434 | val_loss: 25.6161
+Epoch 048 | train_loss: 20.5262 | val_loss: 25.5879
+Epoch 049 | train_loss: 20.3323 | val_loss: 25.6101
+Epoch 050 | train_loss: 20.3198 | val_loss: 25.5977
+Epoch 051 | train_loss: 20.1866 | val_loss: 25.7015
+Epoch 052 | train_loss: 20.4150 | val_loss: 25.6754
+Epoch 053 | train_loss: 20.2475 | val_loss: 25.6214
+Epoch 054 | train_loss: 20.5618 | val_loss: 25.5551
+Epoch 055 | train_loss: 20.3912 | val_loss: 25.5778
+Epoch 056 | train_loss: 20.3557 | val_loss: 25.5392
+Epoch 057 | train_loss: 20.4930 | val_loss: 25.5874
+Epoch 058 | train_loss: 20.4788 | val_loss: 25.6628
+Epoch 059 | train_loss: 20.2938 | val_loss: 25.5979
+Epoch 060 | train_loss: 20.0453 | val_loss: 25.6320
+Epoch 061 | train_loss: 20.3774 | val_loss: 25.6448
+Epoch 062 | train_loss: 20.8136 | val_loss: 25.5359
+Epoch 063 | train_loss: 20.4026 | val_loss: 25.6152
+Epoch 064 | train_loss: 20.1299 | val_loss: 25.5765
+Epoch 065 | train_loss: 20.3605 | val_loss: 25.6055
+Epoch 066 | train_loss: 20.5833 | val_loss: 25.5648
+Epoch 067 | train_loss: 20.4270 | val_loss: 25.5957
+Epoch 068 | train_loss: 20.0185 | val_loss: 25.5645
+Epoch 069 | train_loss: 20.0711 | val_loss: 25.6436
+Epoch 070 | train_loss: 20.4544 | val_loss: 25.6769
+Epoch 071 | train_loss: 20.3722 | val_loss: 25.5695
+Epoch 072 | train_loss: 20.3165 | val_loss: 25.6001
+Epoch 073 | train_loss: 20.4756 | val_loss: 25.5604
+Epoch 074 | train_loss: 20.4333 | val_loss: 25.6541
+Epoch 075 | train_loss: 20.1046 | val_loss: 25.6267
+Epoch 076 | train_loss: 20.1256 | val_loss: 25.5473
+Epoch 077 | train_loss: 20.0504 | val_loss: 25.5736
+Epoch 078 | train_loss: 20.4307 | val_loss: 25.5485
+Epoch 079 | train_loss: 20.6169 | val_loss: 25.6496
+Epoch 080 | train_loss: 20.4185 | val_loss: 25.6195
+Epoch 081 | train_loss: 20.0405 | val_loss: 25.5683
+Epoch 082 | train_loss: 20.4588 | val_loss: 25.6060
+Epoch 083 | train_loss: 20.3577 | val_loss: 25.6175
+Epoch 084 | train_loss: 20.4491 | val_loss: 25.5472
+Epoch 085 | train_loss: 20.5094 | val_loss: 25.5561
+Epoch 086 | train_loss: 20.3556 | val_loss: 25.6214
+Epoch 087 | train_loss: 20.1155 | val_loss: 25.6210
+Epoch 088 | train_loss: 20.3199 | val_loss: 25.5241
+Epoch 089 | train_loss: 20.1684 | val_loss: 25.5706
+Epoch 090 | train_loss: 20.0975 | val_loss: 25.5283
+Epoch 091 | train_loss: 20.3989 | val_loss: 25.5570
+Epoch 092 | train_loss: 20.2539 | val_loss: 25.5979
+Epoch 093 | train_loss: 20.5126 | val_loss: 25.6390
+Epoch 094 | train_loss: 20.2703 | val_loss: 25.5663
+Epoch 095 | train_loss: 20.2309 | val_loss: 25.5234
+Epoch 096 | train_loss: 20.5706 | val_loss: 25.6877
+Epoch 097 | train_loss: 20.4750 | val_loss: 25.5716
+Epoch 098 | train_loss: 19.9285 | val_loss: 25.6060
+Epoch 099 | train_loss: 20.2042 | val_loss: 25.5595
+Epoch 100 | train_loss: 20.2709 | val_loss: 25.6422
+Best score_thresh: 0.9
+Best nms_thresh: 0.3
+Val f1 score: 0.82
+Average prediction delay:                                               33.566 ms
+FPS:                                                                    29.79 frames
+iou thresh		 f1
+0.5 			 0.902
+0.6 			 0.893
+0.7 			 0.868
+0.8 			 0.814
+0.9 			 0.623
+
+Average F1 score: 	 0.82
+End time: Thu Jul  2 12:32:56 PM CEST 2026
+Duration: 113 minutes

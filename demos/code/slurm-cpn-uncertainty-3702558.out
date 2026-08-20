@@ -1,0 +1,85 @@
+Job ID: 3702558
+Node: c146
+Working directory: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code
+Python: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/.venv/bin/python
+Start time: Thu Jul  2 10:40:25 AM CEST 2026
+torch: 2.11.0+cu130
+celldetection: 0.4.9
+cuda available: True
+gpu: NVIDIA H100
+Output directory: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_uncertainty_output
+Logging to: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_uncertainty_output/run.log
+Saving all figures to: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_uncertainty_output/all_figures
+Started at: 2026-07-02 10:41:45.431610
+Config(
+  (uncertainty_head): True
+  (uncertainty_nms): True
+  (uncertainty_factor): 7.0
+  (directory): '../mydata'
+  (download_data): False
+  (in_channels): 1
+  (classes): 2
+  (shuffle): True
+  (bg_fg_dists): (0.8, 0.85)
+  (crop_size): (256, 256)
+  (cpn): 'CpnResNet50UNet'
+  (score_thresh): 0.9
+  (val_score_threshs): (0.6, 0.8, 0.9)
+  (nms_thresh): 0.5
+  (val_nms_threshs): (0.3, 0.5, 0.8)
+  (contour_head_stride): 2
+  (order): 6
+  (samples): 64
+  (refinement_iterations): 3
+  (refinement_buckets): 6
+  (inputs_mean): 0.5
+  (inputs_std): 0.5
+  (tweaks): {'BatchNorm2d': {'momentum': 0.1}}
+  (optimizer): {'Adam': {'lr': 0.0001, 'betas': (0.9, 0.999), 'weight_decay': 0.001}}
+  (scheduler): {'StepLR': {'step_size': 5, 'gamma': 0.5}}
+  (epochs): 20
+  (steps_per_epoch): 36
+  (batch_size): 8
+  (amp): True
+  (test_batch_size): 4
+  (num_workers): 0
+  (device): 'cuda'
+)
+Training set: 289 samples
+Validation set: 62 samples
+Test set: 63 samples
+Epoch 001 | train_loss: 107.0424 | val_loss: 88.0396
+Epoch 002 | train_loss: 70.2113 | val_loss: 83.5095
+Epoch 003 | train_loss: 63.4408 | val_loss: 71.0026
+Epoch 004 | train_loss: 62.4560 | val_loss: 73.6924
+Epoch 005 | train_loss: 58.6657 | val_loss: 68.3977
+Epoch 006 | train_loss: 57.4616 | val_loss: 64.4983
+Epoch 007 | train_loss: 54.2222 | val_loss: 61.4457
+Epoch 008 | train_loss: 51.2991 | val_loss: 60.1217
+Epoch 009 | train_loss: 51.0874 | val_loss: 56.5814
+Epoch 010 | train_loss: 51.7531 | val_loss: 57.9442
+Epoch 011 | train_loss: 50.9373 | val_loss: 56.9653
+Epoch 012 | train_loss: 47.9697 | val_loss: 55.1552
+Epoch 013 | train_loss: 46.6016 | val_loss: 53.4088
+Epoch 014 | train_loss: 51.3478 | val_loss: 55.7651
+Epoch 015 | train_loss: 48.6777 | val_loss: 52.6939
+Epoch 016 | train_loss: 46.1331 | val_loss: 51.5419
+Epoch 017 | train_loss: 46.3708 | val_loss: 50.8110
+Epoch 018 | train_loss: 44.9272 | val_loss: 50.9211
+Epoch 019 | train_loss: 44.2760 | val_loss: 52.1420
+Epoch 020 | train_loss: 44.7087 | val_loss: 50.2588
+Best score_thresh: 0.9
+Best nms_thresh: 0.3
+Val f1 score: 0.682
+Average prediction delay:                                               54.398 ms
+FPS:                                                                    18.38 frames
+iou thresh		 f1
+0.5 			 0.845
+0.6 			 0.793
+0.7 			 0.72
+0.8 			 0.621
+0.9 			 0.43
+
+Average F1 score: 	 0.682
+End time: Thu Jul  2 10:53:15 AM CEST 2026
+Duration: 12 minutes

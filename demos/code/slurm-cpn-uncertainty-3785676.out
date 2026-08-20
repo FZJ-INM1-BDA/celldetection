@@ -1,0 +1,93 @@
+Job ID: 3785676
+Node: c8
+Working directory: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code
+Python: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/.venv/bin/python
+Start time: Fri Jul 24 14:16:57 CEST 2026
+torch: 2.11.0+cu130
+celldetection: 0.4.9
+mlflow: 3.14.0
+cuda available: True
+gpu: NVIDIA H100
+MLflow tracking URI: sqlite:////data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/mlflow.db
+MLflow experiment: celldetection-mydata-uncertainty
+MLflow run name: uncertainty-slurm-3785676
+Config(
+  (uncertainty_head): True
+  (uncertainty_nms): True
+  (uncertainty_factor): 7.0
+  (directory): '../mydata'
+  (download_data): False
+  (in_channels): 1
+  (classes): 2
+  (shuffle): True
+  (bg_fg_dists): (0.8, 0.85)
+  (crop_size): (256, 256)
+  (cpn): 'CpnResNet50UNet'
+  (score_thresh): 0.9
+  (val_score_threshs): (0.6, 0.8, 0.9)
+  (nms_thresh): 0.5
+  (val_nms_threshs): (0.3, 0.5, 0.8)
+  (contour_head_stride): 2
+  (order): 6
+  (samples): 64
+  (refinement_iterations): 3
+  (refinement_buckets): 6
+  (inputs_mean): 0.5
+  (inputs_std): 0.5
+  (tweaks): {'BatchNorm2d': {'momentum': 0.1}}
+  (optimizer): {'Adam': {'lr': 0.0001, 'betas': (0.9, 0.999), 'weight_decay': 0.001}}
+  (scheduler): {'StepLR': {'step_size': 5, 'gamma': 0.5}}
+  (epochs): 20
+  (steps_per_epoch): 36
+  (batch_size): 8
+  (amp): True
+  (test_batch_size): 4
+  (num_workers): 0
+  (device): 'cuda'
+)
+MLflow tracking URI: sqlite:////data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/mlflow.db
+MLflow experiment: celldetection-mydata-uncertainty
+MLflow run: 45ca8213dc42485e99d7eb53bd12b647
+Output directory: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_uncertainty_output/45ca8213dc42485e99d7eb53bd12b647
+Logging to: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_uncertainty_output/45ca8213dc42485e99d7eb53bd12b647/run.log
+Saving all figures to: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_uncertainty_output/45ca8213dc42485e99d7eb53bd12b647/all_figures
+Started at: 2026-07-24 14:26:17.648229
+Training set: 289 samples
+Validation set: 62 samples
+Test set: 63 samples
+Epoch 001 | train_loss: 99.6366 | val_loss: 89.8798
+Epoch 002 | train_loss: 69.7340 | val_loss: 75.2774
+Epoch 003 | train_loss: 68.4127 | val_loss: 72.9569
+Epoch 004 | train_loss: 63.6968 | val_loss: 70.2230
+Epoch 005 | train_loss: 60.8867 | val_loss: 65.3235
+Epoch 006 | train_loss: 56.3014 | val_loss: 60.9711
+Epoch 007 | train_loss: 54.3656 | val_loss: 61.6047
+Epoch 008 | train_loss: 52.2863 | val_loss: 59.6216
+Epoch 009 | train_loss: 50.3332 | val_loss: 59.2559
+Epoch 010 | train_loss: 52.0101 | val_loss: 57.0708
+Epoch 011 | train_loss: 49.4646 | val_loss: 56.4132
+Epoch 012 | train_loss: 50.8794 | val_loss: 54.8429
+Epoch 013 | train_loss: 50.2841 | val_loss: 54.2678
+Epoch 014 | train_loss: 49.3677 | val_loss: 54.7748
+Epoch 015 | train_loss: 47.3043 | val_loss: 53.1572
+Epoch 016 | train_loss: 46.4527 | val_loss: 52.1747
+Epoch 017 | train_loss: 46.4679 | val_loss: 50.4270
+Epoch 018 | train_loss: 47.2403 | val_loss: 52.2690
+Epoch 019 | train_loss: 45.5909 | val_loss: 52.2720
+Epoch 020 | train_loss: 45.0263 | val_loss: 50.5249
+Best score_thresh: 0.9
+Best nms_thresh: 0.3
+Val f1 score: 0.679
+Average prediction delay:                                               54.198 ms
+FPS:                                                                    18.45 frames
+iou thresh		 f1
+0.5 			 0.835
+0.6 			 0.786
+0.7 			 0.72
+0.8 			 0.621
+0.9 			 0.432
+
+Average F1 score: 	 0.679
+MLflow run finished. Open the UI with: mlflow ui --backend-store-uri 'sqlite:////data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/mlflow.db'
+End time: Fri Jul 24 14:38:15 CEST 2026
+Duration: 21 minutes

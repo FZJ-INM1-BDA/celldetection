@@ -1,0 +1,173 @@
+Job ID: 3785456
+Node: c29
+Working directory: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code
+Python: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/.venv/bin/python
+Start time: Fri Jul 24 11:32:05 AM CEST 2026
+torch: 2.11.0+cu130
+celldetection: 0.4.9
+mlflow: 3.14.0
+cuda available: True
+gpu: NVIDIA H100
+MLflow tracking URI: sqlite:////data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/mlflow.db
+MLflow experiment: celldetection-mydata-uncertainty
+MLflow run name: uncertainty-slurm-3785456
+Config(
+  (uncertainty_head): True
+  (uncertainty_nms): True
+  (uncertainty_factor): 7.0
+  (directory): '../mydata'
+  (download_data): False
+  (in_channels): 1
+  (classes): 2
+  (shuffle): True
+  (bg_fg_dists): (0.8, 0.85)
+  (crop_size): (256, 256)
+  (cpn): 'CpnResNet50UNet'
+  (score_thresh): 0.9
+  (val_score_threshs): (0.6, 0.8, 0.9)
+  (nms_thresh): 0.5
+  (val_nms_threshs): (0.3, 0.5, 0.8)
+  (contour_head_stride): 2
+  (order): 6
+  (samples): 64
+  (refinement_iterations): 3
+  (refinement_buckets): 6
+  (inputs_mean): 0.5
+  (inputs_std): 0.5
+  (tweaks): {'BatchNorm2d': {'momentum': 0.1}}
+  (optimizer): {'Adam': {'lr': 0.0001, 'betas': (0.9, 0.999), 'weight_decay': 0.001}}
+  (scheduler): {'StepLR': {'step_size': 5, 'gamma': 0.5}}
+  (epochs): 100
+  (steps_per_epoch): 512
+  (batch_size): 8
+  (amp): True
+  (test_batch_size): 4
+  (num_workers): 0
+  (device): 'cuda'
+)
+MLflow tracking URI: sqlite:////data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/mlflow.db
+MLflow experiment: celldetection-mydata-uncertainty
+MLflow run: 5f61907253854d44884938097a6011fd
+Output directory: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_uncertainty_output/5f61907253854d44884938097a6011fd
+Logging to: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_uncertainty_output/5f61907253854d44884938097a6011fd/run.log
+Saving all figures to: /data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/demos/code/output/mydata_uncertainty_output/5f61907253854d44884938097a6011fd/all_figures
+Started at: 2026-07-24 11:41:19.495599
+Training set: 289 samples
+Validation set: 62 samples
+Test set: 63 samples
+Epoch 001 | train_loss: 59.7758 | val_loss: 55.6480
+Epoch 002 | train_loss: 46.6309 | val_loss: 51.1495
+Epoch 003 | train_loss: 42.1807 | val_loss: 46.4627
+Epoch 004 | train_loss: 39.0715 | val_loss: 47.6308
+Epoch 005 | train_loss: 38.0187 | val_loss: 45.2564
+Epoch 006 | train_loss: 34.4034 | val_loss: 42.8845
+Epoch 007 | train_loss: 34.1717 | val_loss: 40.4539
+Epoch 008 | train_loss: 32.9932 | val_loss: 38.5327
+Epoch 009 | train_loss: 32.7437 | val_loss: 38.4062
+Epoch 010 | train_loss: 32.2012 | val_loss: 38.7654
+Epoch 011 | train_loss: 30.6663 | val_loss: 36.5257
+Epoch 012 | train_loss: 30.0949 | val_loss: 36.5685
+Epoch 013 | train_loss: 29.6011 | val_loss: 36.0447
+Epoch 014 | train_loss: 29.5156 | val_loss: 37.7889
+Epoch 015 | train_loss: 29.6928 | val_loss: 35.9778
+Epoch 016 | train_loss: 28.6572 | val_loss: 34.5463
+Epoch 017 | train_loss: 28.1325 | val_loss: 34.7529
+Epoch 018 | train_loss: 28.0494 | val_loss: 34.5340
+Epoch 019 | train_loss: 27.9499 | val_loss: 34.0469
+Epoch 020 | train_loss: 27.9013 | val_loss: 34.3597
+Epoch 021 | train_loss: 27.0663 | val_loss: 33.5177
+Epoch 022 | train_loss: 26.8801 | val_loss: 33.9555
+Epoch 023 | train_loss: 27.2057 | val_loss: 33.6675
+Epoch 024 | train_loss: 27.2095 | val_loss: 33.0814
+Epoch 025 | train_loss: 26.9164 | val_loss: 34.1930
+Epoch 026 | train_loss: 26.7759 | val_loss: 33.4701
+Epoch 027 | train_loss: 26.8471 | val_loss: 33.3663
+Epoch 028 | train_loss: 26.9896 | val_loss: 33.3675
+Epoch 029 | train_loss: 26.2253 | val_loss: 33.0109
+Epoch 030 | train_loss: 26.4400 | val_loss: 33.0052
+Epoch 031 | train_loss: 26.1576 | val_loss: 32.8989
+Epoch 032 | train_loss: 26.2004 | val_loss: 33.1125
+Epoch 033 | train_loss: 26.3928 | val_loss: 33.0252
+Epoch 034 | train_loss: 26.1736 | val_loss: 32.8861
+Epoch 035 | train_loss: 26.2113 | val_loss: 32.6427
+Epoch 036 | train_loss: 26.3074 | val_loss: 32.8401
+Epoch 037 | train_loss: 26.1360 | val_loss: 32.6860
+Epoch 038 | train_loss: 26.3190 | val_loss: 32.7271
+Epoch 039 | train_loss: 26.0296 | val_loss: 32.9465
+Epoch 040 | train_loss: 26.0698 | val_loss: 32.8968
+Epoch 041 | train_loss: 26.0215 | val_loss: 32.7252
+Epoch 042 | train_loss: 26.1718 | val_loss: 32.8325
+Epoch 043 | train_loss: 25.9282 | val_loss: 32.8492
+Epoch 044 | train_loss: 26.2617 | val_loss: 32.8216
+Epoch 045 | train_loss: 26.0000 | val_loss: 32.8306
+Epoch 046 | train_loss: 25.9646 | val_loss: 32.7555
+Epoch 047 | train_loss: 26.0929 | val_loss: 32.7474
+Epoch 048 | train_loss: 26.3707 | val_loss: 32.5211
+Epoch 049 | train_loss: 26.2352 | val_loss: 32.7925
+Epoch 050 | train_loss: 26.0100 | val_loss: 32.6696
+Epoch 051 | train_loss: 25.9469 | val_loss: 32.8923
+Epoch 052 | train_loss: 26.1344 | val_loss: 32.7550
+Epoch 053 | train_loss: 26.1405 | val_loss: 32.8276
+Epoch 054 | train_loss: 26.0247 | val_loss: 32.9714
+Epoch 055 | train_loss: 26.4408 | val_loss: 32.7771
+Epoch 056 | train_loss: 25.8659 | val_loss: 32.8119
+Epoch 057 | train_loss: 26.2251 | val_loss: 32.6186
+Epoch 058 | train_loss: 25.9352 | val_loss: 32.7961
+Epoch 059 | train_loss: 26.1593 | val_loss: 32.7756
+Epoch 060 | train_loss: 25.6708 | val_loss: 32.7726
+Epoch 061 | train_loss: 25.8777 | val_loss: 32.7201
+Epoch 062 | train_loss: 25.9164 | val_loss: 32.8646
+Epoch 063 | train_loss: 25.8769 | val_loss: 32.6462
+Epoch 064 | train_loss: 26.0254 | val_loss: 32.7396
+Epoch 065 | train_loss: 25.9167 | val_loss: 32.8943
+Epoch 066 | train_loss: 26.1277 | val_loss: 32.7247
+Epoch 067 | train_loss: 26.2804 | val_loss: 32.8338
+Epoch 068 | train_loss: 26.1767 | val_loss: 32.7783
+Epoch 069 | train_loss: 26.0761 | val_loss: 32.7259
+Epoch 070 | train_loss: 26.1492 | val_loss: 32.6530
+Epoch 071 | train_loss: 25.8899 | val_loss: 32.8686
+Epoch 072 | train_loss: 26.1987 | val_loss: 32.6819
+Epoch 073 | train_loss: 25.8784 | val_loss: 32.7066
+Epoch 074 | train_loss: 25.9690 | val_loss: 32.7896
+Epoch 075 | train_loss: 26.1415 | val_loss: 32.6784
+Epoch 076 | train_loss: 26.2031 | val_loss: 32.7305
+Epoch 077 | train_loss: 25.9269 | val_loss: 32.8396
+Epoch 078 | train_loss: 25.9312 | val_loss: 32.7066
+Epoch 079 | train_loss: 26.0648 | val_loss: 32.6858
+Epoch 080 | train_loss: 26.1470 | val_loss: 32.7734
+Epoch 081 | train_loss: 26.2701 | val_loss: 32.6849
+Epoch 082 | train_loss: 25.7810 | val_loss: 32.7356
+Epoch 083 | train_loss: 26.1388 | val_loss: 32.6785
+Epoch 084 | train_loss: 26.1226 | val_loss: 32.6866
+Epoch 085 | train_loss: 26.2011 | val_loss: 32.7481
+Epoch 086 | train_loss: 26.2215 | val_loss: 32.7606
+Epoch 087 | train_loss: 26.1467 | val_loss: 32.8414
+Epoch 088 | train_loss: 25.9596 | val_loss: 32.8174
+Epoch 089 | train_loss: 26.0863 | val_loss: 32.7733
+Epoch 090 | train_loss: 26.0666 | val_loss: 32.7324
+Epoch 091 | train_loss: 25.9247 | val_loss: 32.7262
+Epoch 092 | train_loss: 25.8549 | val_loss: 32.7097
+Epoch 093 | train_loss: 25.6601 | val_loss: 32.7608
+Epoch 094 | train_loss: 26.0622 | val_loss: 32.6954
+Epoch 095 | train_loss: 25.9996 | val_loss: 32.6616
+Epoch 096 | train_loss: 25.8499 | val_loss: 32.7439
+Epoch 097 | train_loss: 25.8539 | val_loss: 32.5785
+Epoch 098 | train_loss: 26.1914 | val_loss: 32.6802
+Epoch 099 | train_loss: 25.8836 | val_loss: 32.7286
+Epoch 100 | train_loss: 26.5522 | val_loss: 32.6806
+Best score_thresh: 0.9
+Best nms_thresh: 0.3
+Val f1 score: 0.807
+Average prediction delay:                                               54.397 ms
+FPS:                                                                    18.38 frames
+iou thresh		 f1
+0.5 			 0.896
+0.6 			 0.883
+0.7 			 0.853
+0.8 			 0.796
+0.9 			 0.608
+
+Average F1 score: 	 0.807
+MLflow run finished. Open the UI with: mlflow ui --backend-store-uri 'sqlite:////data/cat/ws/mehu311f-cpn_workspace_e1/celldetection/mlflow.db'
+End time: Fri Jul 24 01:53:08 PM CEST 2026
+Duration: 141 minutes
